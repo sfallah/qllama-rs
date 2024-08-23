@@ -57,8 +57,8 @@ pub fn benches() {
         LlamaModelParams::default()
     };
 
-    let model_path = "/Users/sabafallah/dev/qimia_ai_dev/llama.cpp/models/all-MiniLM-L6-v2.gguf".to_string();
-    //let model_path = "/Users/sabafallah/dev/qimia_ai_dev/llama.cpp/models/multilingual-e5-large-instruct-q4_k_m.gguf".to_string();
+    let model_path = "models/all-MiniLM-L6-v2-ggml-model-f16.gguf".to_string();
+    //let model_path = "models/multilingual-e5-large-instruct-q4_k_m.gguf".to_string();
     let model_path = PathBuf::from(model_path);
 
     let model = LlamaModel::load_from_file(&backend, model_path, &model_params).unwrap();
