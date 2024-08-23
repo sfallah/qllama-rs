@@ -68,7 +68,6 @@ pub fn benches() {
     let parallelism = std::thread::available_parallelism().unwrap().get() as u32;
     println!("parallelism: {}", parallelism);
     let ctx_params = LlamaContextParams::default().with_n_threads_batch(parallelism)
-        .with_n_ubatch(ctx_params_default.n_batch())
         .with_embeddings(true);
 
     let mut ctx = model.new_context(&backend, ctx_params).unwrap();

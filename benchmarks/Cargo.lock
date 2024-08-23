@@ -997,8 +997,9 @@ checksum = "78b3ae25bc7c8c38cec158d1f2757ee79e9b3740fbc7ccf0e59e4b08d793fa89"
 
 [[package]]
 name = "llama-cpp-2"
-version = "0.1.66"
-source = "git+https://gitlab.com/qimiaio/qimia-ai-dev/llama-cpp-rs.git?branch=feat/ctx_params_n_ubatch#25bd79da58cc324b9d101746a454316f6b4b867f"
+version = "0.1.67"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79acdd23b9af3528749d775466bc3b109e1e82c05ee0461073ce452af42075ed"
 dependencies = [
  "enumflags2",
  "llama-cpp-sys-2",
@@ -1021,8 +1022,9 @@ dependencies = [
 
 [[package]]
 name = "llama-cpp-sys-2"
-version = "0.1.66"
-source = "git+https://gitlab.com/qimiaio/qimia-ai-dev/llama-cpp-rs.git?branch=feat/ctx_params_n_ubatch#25bd79da58cc324b9d101746a454316f6b4b867f"
+version = "0.1.67"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee5d8da435144e01cf65fcedfeffcc92c4d96dcdd5b0244ef8133a13ad208d13"
 dependencies = [
  "bindgen",
  "cc",
