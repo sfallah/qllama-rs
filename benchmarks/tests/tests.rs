@@ -1,8 +1,8 @@
 mod tetes {
     use anyhow::Result;
-    use candle_core::{Device, Tensor};
     use fast_text_splitter::config::SplitterLiteConfig;
     use fast_text_splitter::hf_tokenizer::HFTokenizer;
+    use candle_core::{Device, Tensor};
     use llama_cpp_2::context::params::LlamaContextParams;
     use llama_cpp_2::context::LlamaContext;
     use llama_cpp_2::llama_backend::LlamaBackend;
@@ -71,7 +71,7 @@ mod tetes {
 
         // initialize the context
         let ctx_params_default = LlamaContextParams::default();
-        let parallelism = std::thread::available_parallelism().unwrap().get() as u32;
+        let parallelism = std::thread::available_parallelism().unwrap().get() as i32;
         println!("parallelism: {}", parallelism);
         let ctx_params = LlamaContextParams::default().with_n_threads_batch(parallelism)
             .with_embeddings(true);

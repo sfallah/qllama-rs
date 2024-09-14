@@ -57,7 +57,8 @@ pub fn benches() {
         LlamaModelParams::default()
     };
 
-    let model_path = "models/all-MiniLM-L6-v2-ggml-model-f16.gguf".to_string();
+    //let model_path = "models/all-MiniLM-L6-v2-ggml-model-f16.gguf".to_string();
+    let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf".to_string();
     //let model_path = "models/multilingual-e5-large-instruct-q4_k_m.gguf".to_string();
     let model_path = PathBuf::from(model_path);
 
@@ -65,7 +66,7 @@ pub fn benches() {
 
     // initialize the context
     let ctx_params_default = LlamaContextParams::default();
-    let parallelism = std::thread::available_parallelism().unwrap().get() as u32;
+    let parallelism = std::thread::available_parallelism().unwrap().get() as i32;
     println!("parallelism: {}", parallelism);
     let ctx_params = LlamaContextParams::default().with_n_threads_batch(parallelism)
         .with_embeddings(true);
