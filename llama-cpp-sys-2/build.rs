@@ -262,11 +262,11 @@ fn main() {
         }
     }
 
-    if cfg!(feature = "cuda") {
+    if cfg!(all(feature = "cuda", not(target_os = "macos"))) {
         config.define("GGML_CUDA", "ON");
     }
 
-    if cfg!(feature = "openmp") {
+    if cfg!(all(feature = "openmp", not(target_os = "macos"))) {
         config.define("GGML_OPENMP", "ON");
     }
 
