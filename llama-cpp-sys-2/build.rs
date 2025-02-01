@@ -182,6 +182,7 @@ fn main() {
     // Bindings
     let bindings = bindgen::Builder::default()
         .header("wrapper.h")
+        .clang_args(&["-x", "c++", "-std=c++17"])
         .clang_arg(format!("-I{}", llama_dst.join("include").display()))
         .clang_arg(format!("-I{}", llama_dst.join("ggml/include").display()))
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
@@ -190,6 +191,8 @@ fn main() {
         .allowlist_type("ggml_.*")
         .allowlist_function("llama_.*")
         .allowlist_type("llama_.*")
+        .allowlist_type("common_.*")
+        .allowlist_type("common_.*")
         .prepend_enum_name(false)
         .generate()
         .expect("Failed to generate bindings");
