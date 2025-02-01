@@ -197,29 +197,29 @@ pub enum LlamaLoraAdapterRemoveError {
 
 /// get the time (in microseconds) according to llama.cpp
 /// ```
-/// # use llama_cpp_2::llama_time_us;
+/// # use llama_cpp::llama_time_us;
 /// let time = llama_time_us();
 /// assert!(time > 0);
 /// ```
 #[must_use]
 pub fn llama_time_us() -> i64 {
-    unsafe { llama_cpp_sys_2::llama_time_us() }
+    unsafe { llama_cpp_sys::llama_time_us() }
 }
 
 /// get the max number of devices according to llama.cpp (this is generally cuda devices)
 /// ```
-/// # use llama_cpp_2::max_devices;
+/// # use llama_cpp::max_devices;
 /// let max_devices = max_devices();
 /// assert!(max_devices >= 0);
 /// ```
 #[must_use]
 pub fn max_devices() -> usize {
-    unsafe { llama_cpp_sys_2::llama_max_devices() }
+    unsafe { llama_cpp_sys::llama_max_devices() }
 }
 
 /// is memory mapping supported according to llama.cpp
 /// ```
-/// # use llama_cpp_2::mmap_supported;
+/// # use llama_cpp::mmap_supported;
 /// let mmap_supported = mmap_supported();
 /// if mmap_supported {
 ///   println!("mmap_supported!");
@@ -227,12 +227,12 @@ pub fn max_devices() -> usize {
 /// ```
 #[must_use]
 pub fn mmap_supported() -> bool {
-    unsafe { llama_cpp_sys_2::llama_supports_mmap() }
+    unsafe { llama_cpp_sys::llama_supports_mmap() }
 }
 
 /// is memory locking supported according to llama.cpp
 /// ```
-/// # use llama_cpp_2::mlock_supported;
+/// # use llama_cpp::mlock_supported;
 /// let mlock_supported = mlock_supported();
 /// if mlock_supported {
 ///    println!("mlock_supported!");
@@ -240,7 +240,7 @@ pub fn mmap_supported() -> bool {
 /// ```
 #[must_use]
 pub fn mlock_supported() -> bool {
-    unsafe { llama_cpp_sys_2::llama_supports_mlock() }
+    unsafe { llama_cpp_sys::llama_supports_mlock() }
 }
 
 /// An error that can occur when converting a token to a string.
@@ -292,7 +292,7 @@ pub enum ApplyChatTemplateError {
 ///
 /// ```
 /// # use std::time::Duration;
-/// use llama_cpp_2::ggml_time_us;
+/// use llama_cpp::ggml_time_us;
 ///
 /// let start = ggml_time_us();
 ///
@@ -305,13 +305,13 @@ pub enum ApplyChatTemplateError {
 /// assert!(elapsed >= 10)
 #[must_use]
 pub fn ggml_time_us() -> i64 {
-    unsafe { llama_cpp_sys_2::ggml_time_us() }
+    unsafe { llama_cpp_sys::ggml_time_us() }
 }
 
 /// checks if mlock is supported
 ///
 /// ```
-/// # use llama_cpp_2::llama_supports_mlock;
+/// # use llama_cpp::llama_supports_mlock;
 ///
 /// if llama_supports_mlock() {
 ///   println!("mlock is supported!");
@@ -321,5 +321,5 @@ pub fn ggml_time_us() -> i64 {
 /// ```
 #[must_use]
 pub fn llama_supports_mlock() -> bool {
-    unsafe { llama_cpp_sys_2::llama_supports_mlock() }
+    unsafe { llama_cpp_sys::llama_supports_mlock() }
 }

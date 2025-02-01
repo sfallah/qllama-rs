@@ -1,7 +1,7 @@
 //! Representation of an initialized llama backend
 
 use crate::LLamaCppError;
-use llama_cpp_sys_2::ggml_log_level;
+use llama_cpp_sys::ggml_log_level;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
 
@@ -27,8 +27,8 @@ impl LlamaBackend {
     /// # Examples
     ///
     /// ```
-    ///# use llama_cpp_2::llama_backend::LlamaBackend;
-    ///# use llama_cpp_2::LLamaCppError;
+    ///# use llama_cpp::llama_backend::LlamaBackend;
+    ///# use llama_cpp::LLamaCppError;
     ///# use std::error::Error;
     ///
     ///# fn main() -> Result<(), Box<dyn Error>> {
@@ -44,15 +44,15 @@ impl LlamaBackend {
     #[tracing::instrument(skip_all)]
     pub fn init() -> crate::Result<LlamaBackend> {
         Self::mark_init()?;
-        unsafe { llama_cpp_sys_2::llama_backend_init() }
+        unsafe { llama_cpp_sys::llama_backend_init() }
         Ok(LlamaBackend {})
     }
 
     /// Initialize the llama backend (with numa).
     /// ```
-    ///# use llama_cpp_2::llama_backend::LlamaBackend;
+    ///# use llama_cpp::llama_backend::LlamaBackend;
     ///# use std::error::Error;
-    ///# use llama_cpp_2::llama_backend::NumaStrategy;
+    ///# use llama_cpp::llama_backend::NumaStrategy;
     ///
     ///# fn main() -> Result<(), Box<dyn Error>> {
     ///
@@ -65,7 +65,7 @@ impl LlamaBackend {
     pub fn init_numa(strategy: NumaStrategy) -> crate::Result<LlamaBackend> {
         Self::mark_init()?;
         unsafe {
-            llama_cpp_sys_2::llama_numa_init(llama_cpp_sys_2::ggml_numa_strategy::from(strategy));
+            llama_cpp_sys::llama_numa_init(llama_cpp_sys::ggml_numa_strategy::from(strategy));
         }
         Ok(LlamaBackend {})
     }
@@ -80,7 +80,7 @@ impl LlamaBackend {
         }
 
         unsafe {
-            llama_cpp_sys_2::llama_log_set(Some(void_log), std::ptr::null_mut());
+            llama_cpp_sys::llama_log_set(Some(void_log), std::ptr::null_mut());
         }
     }
 }
@@ -106,34 +106,34 @@ pub enum NumaStrategy {
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub struct InvalidNumaStrategy(
     /// The invalid numa strategy that was provided.
-    pub llama_cpp_sys_2::ggml_numa_strategy,
+    pub llama_cpp_sys::ggml_numa_strategy,
 );
 
-impl TryFrom<llama_cpp_sys_2::ggml_numa_strategy> for NumaStrategy {
+impl TryFrom<llama_cpp_sys::ggml_numa_strategy> for NumaStrategy {
     type Error = InvalidNumaStrategy;
 
-    fn try_from(value: llama_cpp_sys_2::ggml_numa_strategy) -> Result<Self, Self::Error> {
+    fn try_from(value: llama_cpp_sys::ggml_numa_strategy) -> Result<Self, Self::Error> {
         match value {
-            llama_cpp_sys_2::GGML_NUMA_STRATEGY_DISABLED => Ok(Self::DISABLED),
-            llama_cpp_sys_2::GGML_NUMA_STRATEGY_DISTRIBUTE => Ok(Self::DISTRIBUTE),
-            llama_cpp_sys_2::GGML_NUMA_STRATEGY_ISOLATE => Ok(Self::ISOLATE),
-            llama_cpp_sys_2::GGML_NUMA_STRATEGY_NUMACTL => Ok(Self::NUMACTL),
-            llama_cpp_sys_2::GGML_NUMA_STRATEGY_MIRROR => Ok(Self::MIRROR),
-            llama_cpp_sys_2::GGML_NUMA_STRATEGY_COUNT => Ok(Self::COUNT),
+            llama_cpp_sys::GGML_NUMA_STRATEGY_DISABLED => Ok(Self::DISABLED),
+            llama_cpp_sys::GGML_NUMA_STRATEGY_DISTRIBUTE => Ok(Self::DISTRIBUTE),
+            llama_cpp_sys::GGML_NUMA_STRATEGY_ISOLATE => Ok(Self::ISOLATE),
+            llama_cpp_sys::GGML_NUMA_STRATEGY_NUMACTL => Ok(Self::NUMACTL),
+            llama_cpp_sys::GGML_NUMA_STRATEGY_MIRROR => Ok(Self::MIRROR),
+            llama_cpp_sys::GGML_NUMA_STRATEGY_COUNT => Ok(Self::COUNT),
             value => Err(InvalidNumaStrategy(value)),
         }
     }
 }
 
-impl From<NumaStrategy> for llama_cpp_sys_2::ggml_numa_strategy {
+impl From<NumaStrategy> for llama_cpp_sys::ggml_numa_strategy {
     fn from(value: NumaStrategy) -> Self {
         match value {
-            NumaStrategy::DISABLED => llama_cpp_sys_2::GGML_NUMA_STRATEGY_DISABLED,
-            NumaStrategy::DISTRIBUTE => llama_cpp_sys_2::GGML_NUMA_STRATEGY_DISTRIBUTE,
-            NumaStrategy::ISOLATE => llama_cpp_sys_2::GGML_NUMA_STRATEGY_ISOLATE,
-            NumaStrategy::NUMACTL => llama_cpp_sys_2::GGML_NUMA_STRATEGY_NUMACTL,
-            NumaStrategy::MIRROR => llama_cpp_sys_2::GGML_NUMA_STRATEGY_MIRROR,
-            NumaStrategy::COUNT => llama_cpp_sys_2::GGML_NUMA_STRATEGY_COUNT,
+            NumaStrategy::DISABLED => llama_cpp_sys::GGML_NUMA_STRATEGY_DISABLED,
+            NumaStrategy::DISTRIBUTE => llama_cpp_sys::GGML_NUMA_STRATEGY_DISTRIBUTE,
+            NumaStrategy::ISOLATE => llama_cpp_sys::GGML_NUMA_STRATEGY_ISOLATE,
+            NumaStrategy::NUMACTL => llama_cpp_sys::GGML_NUMA_STRATEGY_NUMACTL,
+            NumaStrategy::MIRROR => llama_cpp_sys::GGML_NUMA_STRATEGY_MIRROR,
+            NumaStrategy::COUNT => llama_cpp_sys::GGML_NUMA_STRATEGY_COUNT,
         }
     }
 }
@@ -141,7 +141,7 @@ impl From<NumaStrategy> for llama_cpp_sys_2::ggml_numa_strategy {
 /// Drops the llama backend.
 /// ```
 ///
-///# use llama_cpp_2::llama_backend::LlamaBackend;
+///# use llama_cpp::llama_backend::LlamaBackend;
 ///# use std::error::Error;
 ///
 ///# fn main() -> Result<(), Box<dyn Error>> {
@@ -161,7 +161,7 @@ impl Drop for LlamaBackend {
                 unreachable!("This should not be reachable as the only ways to obtain a llama backend involve marking the backend as initialized.")
             }
         }
-        unsafe { llama_cpp_sys_2::llama_backend_free() }
+        unsafe { llama_cpp_sys::llama_backend_free() }
     }
 }
 
@@ -181,7 +181,7 @@ mod tests {
         ];
 
         for numa in &numas {
-            let from = llama_cpp_sys_2::ggml_numa_strategy::from(*numa);
+            let from = llama_cpp_sys::ggml_numa_strategy::from(*numa);
             let to = NumaStrategy::try_from(from).expect("Failed to convert from and to");
             assert_eq!(*numa, to);
         }

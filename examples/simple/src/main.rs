@@ -1,4 +1,4 @@
-//! This is a translation of simple.cpp in llama.cpp using llama-cpp-2.
+//! This is a translation of simple.cpp in llama.cpp using llama-cpp.
 #![allow(
     clippy::cast_possible_wrap,
     clippy::cast_possible_truncation,
@@ -9,15 +9,15 @@
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use hf_hub::api::sync::ApiBuilder;
-use llama_cpp_2::context::params::LlamaContextParams;
-use llama_cpp_2::ggml_time_us;
-use llama_cpp_2::llama_backend::LlamaBackend;
-use llama_cpp_2::llama_batch::LlamaBatch;
-use llama_cpp_2::model::params::kv_overrides::ParamOverrideValue;
-use llama_cpp_2::model::params::LlamaModelParams;
-use llama_cpp_2::model::LlamaModel;
-use llama_cpp_2::model::{AddBos, Special};
-use llama_cpp_2::sampling::LlamaSampler;
+use llama_cpp::context::params::LlamaContextParams;
+use llama_cpp::ggml_time_us;
+use llama_cpp::llama_backend::LlamaBackend;
+use llama_cpp::llama_batch::LlamaBatch;
+use llama_cpp::model::params::kv_overrides::ParamOverrideValue;
+use llama_cpp::model::params::LlamaModelParams;
+use llama_cpp::model::LlamaModel;
+use llama_cpp::model::{AddBos, Special};
+use llama_cpp::sampling::LlamaSampler;
 
 use std::ffi::CString;
 use std::io::Write;

@@ -11,7 +11,7 @@ use crate::token::LlamaToken;
 
 /// A safe wrapper around `llama_sampler`.
 pub struct LlamaSampler {
-    pub(crate) sampler: *mut llama_cpp_sys_2::llama_sampler,
+    pub(crate) sampler: *mut llama_cpp_sys::llama_sampler,
 }
 
 impl Debug for LlamaSampler {
@@ -33,7 +33,7 @@ impl LlamaSampler {
     #[must_use]
     pub fn sample(&mut self, ctx: &LlamaContext, idx: i32) -> LlamaToken {
         let token = unsafe {
-            llama_cpp_sys_2::llama_sampler_sample(self.sampler, ctx.context.as_ptr(), idx)
+            llama_cpp_sys::llama_sampler_sample(self.sampler, ctx.context.as_ptr(), idx)
         };
 
         LlamaToken(token)
@@ -47,14 +47,14 @@ impl LlamaSampler {
     /// Accepts a token from the sampler, possibly updating the internal state of certain samplers
     /// (e.g. grammar, repetition, etc.)
     pub fn accept(&mut self, token: LlamaToken) {
-        unsafe { llama_cpp_sys_2::llama_sampler_accept(self.sampler, token.0) }
+        unsafe { llama_cpp_sys::llama_sampler_accept(self.sampler, token.0) }
     }
 
     /// Accepts several tokens from the sampler or context, possibly updating the internal state of
     /// certain samplers (e.g. grammar, repetition, etc.)
     pub fn accept_many(&mut self, tokens: impl IntoIterator<Item = impl Borrow<LlamaToken>>) {
         for token in tokens {
-            unsafe { llama_cpp_sys_2::llama_sampler_accept(self.sampler, token.borrow().0) }
+            unsafe { llama_cpp_sys::llama_sampler_accept(self.sampler, token.borrow().0) }
         }
     }
 
@@ -78,12 +78,12 @@ impl LlamaSampler {
     #[must_use]
     pub fn chain(samplers: impl IntoIterator<Item = Self>, no_perf: bool) -> Self {
         unsafe {
-            let chain = llama_cpp_sys_2::llama_sampler_chain_init(
-                llama_cpp_sys_2::llama_sampler_chain_params { no_perf },
+            let chain = llama_cpp_sys::llama_sampler_chain_init(
+                llama_cpp_sys::llama_sampler_chain_params { no_perf },
             );
 
             for sampler in samplers {
-                llama_cpp_sys_2::llama_sampler_chain_add(chain, sampler.sampler);
+                llama_cpp_sys::llama_sampler_chain_add(chain, sampler.sampler);
 
                 // Do not call `llama_sampler_free` on the sampler, as the internal sampler is now
                 // owned by the chain
@@ -98,12 +98,12 @@ impl LlamaSampler {
     ///
     /// # Example
     /// ```rust
-    /// use llama_cpp_2::token::{
+    /// use llama_cpp::token::{
     ///    LlamaToken,
     ///    data::LlamaTokenData,
     ///    data_array::LlamaTokenDataArray
     /// };
-    /// use llama_cpp_2::sampling::LlamaSampler;
+    /// use llama_cpp::sampling::LlamaSampler;
     ///
     /// let mut data_array = LlamaTokenDataArray::new(vec![
     ///     LlamaTokenData::new(LlamaToken(0), 0., 0.),
@@ -134,12 +134,12 @@ impl LlamaSampler {
     ///
     /// # Example:
     /// ```rust
-    /// use llama_cpp_2::token::{
+    /// use llama_cpp::token::{
     ///    LlamaToken,
     ///    data::LlamaTokenData,
     ///    data_array::LlamaTokenDataArray
     /// };
-    /// use llama_cpp_2::sampling::LlamaSampler;
+    /// use llama_cpp::sampling::LlamaSampler;
     ///
     /// let mut data_array = LlamaTokenDataArray::new(vec![
     ///     LlamaTokenData::new(LlamaToken(0), 0., 0.),
@@ -155,7 +155,7 @@ impl LlamaSampler {
     /// ```
     #[must_use]
     pub fn temp(t: f32) -> Self {
-        let sampler = unsafe { llama_cpp_sys_2::llama_sampler_init_temp(t) };
+        let sampler = unsafe { llama_cpp_sys::llama_sampler_init_temp(t) };
         Self { sampler }
     }
 
@@ -163,7 +163,7 @@ impl LlamaSampler {
     /// <https://arxiv.org/abs/2309.02772>.
     #[must_use]
     pub fn temp_ext(t: f32, delta: f32, exponent: f32) -> Self {
-        let sampler = unsafe { llama_cpp_sys_2::llama_sampler_init_temp_ext(t, delta, exponent) };
+        let sampler = unsafe { llama_cpp_sys::llama_sampler_init_temp_ext(t, delta, exponent) };
         Self { sampler }
     }
 
@@ -172,12 +172,12 @@ impl LlamaSampler {
     ///
     /// # Example:
     /// ```rust
-    /// use llama_cpp_2::token::{
+    /// use llama_cpp::token::{
     ///    LlamaToken,
     ///    data::LlamaTokenData,
     ///    data_array::LlamaTokenDataArray
     /// };
-    /// use llama_cpp_2::sampling::LlamaSampler;
+    /// use llama_cpp::sampling::LlamaSampler;
     ///
     /// let mut data_array = LlamaTokenDataArray::new(vec![
     ///     LlamaTokenData::new(LlamaToken(0), 0., 0.),
@@ -194,14 +194,14 @@ impl LlamaSampler {
     /// ```
     #[must_use]
     pub fn top_k(k: i32) -> Self {
-        let sampler = unsafe { llama_cpp_sys_2::llama_sampler_init_top_k(k) };
+        let sampler = unsafe { llama_cpp_sys::llama_sampler_init_top_k(k) };
         Self { sampler }
     }
 
     /// Locally Typical Sampling implementation described in the paper <https://arxiv.org/abs/2202.00666>.
     #[must_use]
     pub fn typical(p: f32, min_keep: usize) -> Self {
-        let sampler = unsafe { llama_cpp_sys_2::llama_sampler_init_typical(p, min_keep) };
+        let sampler = unsafe { llama_cpp_sys::llama_sampler_init_typical(p, min_keep) };
         Self { sampler }
     }
 
@@ -209,21 +209,21 @@ impl LlamaSampler {
     /// <https://arxiv.org/abs/1904.09751>
     #[must_use]
     pub fn top_p(p: f32, min_keep: usize) -> Self {
-        let sampler = unsafe { llama_cpp_sys_2::llama_sampler_init_top_p(p, min_keep) };
+        let sampler = unsafe { llama_cpp_sys::llama_sampler_init_top_p(p, min_keep) };
         Self { sampler }
     }
 
     /// Minimum P sampling as described in <https://github.com/ggerganov/llama.cpp/pull/3841>
     #[must_use]
     pub fn min_p(p: f32, min_keep: usize) -> Self {
-        let sampler = unsafe { llama_cpp_sys_2::llama_sampler_init_min_p(p, min_keep) };
+        let sampler = unsafe { llama_cpp_sys::llama_sampler_init_min_p(p, min_keep) };
         Self { sampler }
     }
 
     /// XTC sampler as described in <https://github.com/oobabooga/text-generation-webui/pull/6335>
     #[must_use]
     pub fn xtc(p: f32, t: f32, min_keep: usize, seed: u32) -> Self {
-        let sampler = unsafe { llama_cpp_sys_2::llama_sampler_init_xtc(p, t, min_keep, seed) };
+        let sampler = unsafe { llama_cpp_sys::llama_sampler_init_xtc(p, t, min_keep, seed) };
         Self { sampler }
     }
 
@@ -237,7 +237,7 @@ impl LlamaSampler {
         let grammar_root = CString::new(grammar_root).unwrap();
 
         let sampler = unsafe {
-            llama_cpp_sys_2::llama_sampler_init_grammar(
+            llama_cpp_sys::llama_sampler_init_grammar(
                 model.vocab_ptr(),
                 grammar_str.as_ptr(),
                 grammar_root.as_ptr(),
@@ -270,7 +270,7 @@ impl LlamaSampler {
             seq_breakers.iter().map(|s| s.as_ptr()).collect();
 
         let sampler = unsafe {
-            llama_cpp_sys_2::llama_sampler_init_dry(
+            llama_cpp_sys::llama_sampler_init_dry(
                 model.vocab_ptr(),
                 model
                     .n_ctx_train()
@@ -303,7 +303,7 @@ impl LlamaSampler {
         penalty_present: f32,
     ) -> Self {
         let sampler = unsafe {
-            llama_cpp_sys_2::llama_sampler_init_penalties(
+            llama_cpp_sys::llama_sampler_init_penalties(
                 penalty_last_n,
                 penalty_repeat,
                 penalty_freq,
@@ -331,7 +331,7 @@ impl LlamaSampler {
     #[must_use]
     pub fn mirostat(n_vocab: i32, seed: u32, tau: f32, eta: f32, m: i32) -> Self {
         let sampler =
-            unsafe { llama_cpp_sys_2::llama_sampler_init_mirostat(n_vocab, seed, tau, eta, m) };
+            unsafe { llama_cpp_sys::llama_sampler_init_mirostat(n_vocab, seed, tau, eta, m) };
         Self { sampler }
     }
 
@@ -347,14 +347,14 @@ impl LlamaSampler {
     ///     updated more quickly, while a smaller learning rate will result in slower updates.
     #[must_use]
     pub fn mirostat_v2(seed: u32, tau: f32, eta: f32) -> Self {
-        let sampler = unsafe { llama_cpp_sys_2::llama_sampler_init_mirostat_v2(seed, tau, eta) };
+        let sampler = unsafe { llama_cpp_sys::llama_sampler_init_mirostat_v2(seed, tau, eta) };
         Self { sampler }
     }
 
     /// Selects a token at random based on each token's probabilities
     #[must_use]
     pub fn dist(seed: u32) -> Self {
-        let sampler = unsafe { llama_cpp_sys_2::llama_sampler_init_dist(seed) };
+        let sampler = unsafe { llama_cpp_sys::llama_sampler_init_dist(seed) };
         Self { sampler }
     }
 
@@ -362,12 +362,12 @@ impl LlamaSampler {
     ///
     /// # Example:
     /// ```rust
-    /// use llama_cpp_2::token::{
+    /// use llama_cpp::token::{
     ///    LlamaToken,
     ///    data::LlamaTokenData,
     ///    data_array::LlamaTokenDataArray
     /// };
-    /// use llama_cpp_2::sampling::LlamaSampler;
+    /// use llama_cpp::sampling::LlamaSampler;
     ///
     /// let mut data_array = LlamaTokenDataArray::new(vec![
     ///     LlamaTokenData::new(LlamaToken(0), 0., 0.),
@@ -381,7 +381,7 @@ impl LlamaSampler {
     /// ```
     #[must_use]
     pub fn greedy() -> Self {
-        let sampler = unsafe { llama_cpp_sys_2::llama_sampler_init_greedy() };
+        let sampler = unsafe { llama_cpp_sys::llama_sampler_init_greedy() };
         Self { sampler }
     }
 }
@@ -389,7 +389,7 @@ impl LlamaSampler {
 impl Drop for LlamaSampler {
     fn drop(&mut self) {
         unsafe {
-            llama_cpp_sys_2::llama_sampler_free(self.sampler);
+            llama_cpp_sys::llama_sampler_free(self.sampler);
         }
     }
 }

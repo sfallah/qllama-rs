@@ -21,9 +21,9 @@ impl LlamaTokenDataArray {
     /// Create a new `LlamaTokenDataArray` from a vector and whether or not the data is sorted.
     ///
     /// ```
-    /// # use llama_cpp_2::token::data::LlamaTokenData;
-    /// # use llama_cpp_2::token::data_array::LlamaTokenDataArray;
-    /// # use llama_cpp_2::token::LlamaToken;
+    /// # use llama_cpp::token::data::LlamaTokenData;
+    /// # use llama_cpp::token::data_array::LlamaTokenDataArray;
+    /// # use llama_cpp::token::LlamaToken;
     /// let array = LlamaTokenDataArray::new(vec![
     ///         LlamaTokenData::new(LlamaToken(0), 0.0, 0.0),
     ///         LlamaTokenData::new(LlamaToken(1), 0.1, 0.1)
@@ -42,9 +42,9 @@ impl LlamaTokenDataArray {
 
     /// Create a new `LlamaTokenDataArray` from an iterator and whether or not the data is sorted.
     /// ```
-    /// # use llama_cpp_2::token::data::LlamaTokenData;
-    /// # use llama_cpp_2::token::data_array::LlamaTokenDataArray;
-    /// # use llama_cpp_2::token::LlamaToken;
+    /// # use llama_cpp::token::data::LlamaTokenData;
+    /// # use llama_cpp::token::data_array::LlamaTokenDataArray;
+    /// # use llama_cpp::token::LlamaToken;
     /// let array = LlamaTokenDataArray::from_iter([
     ///     LlamaTokenData::new(LlamaToken(0), 0.0, 0.0),
     ///     LlamaTokenData::new(LlamaToken(1), 0.1, 0.1)
@@ -80,15 +80,15 @@ impl LlamaTokenDataArray {
     /// if the data is not sorted, sorted must be false.
     pub(crate) unsafe fn modify_as_c_llama_token_data_array<T>(
         &mut self,
-        modify: impl FnOnce(&mut llama_cpp_sys_2::llama_token_data_array) -> T,
+        modify: impl FnOnce(&mut llama_cpp_sys::llama_token_data_array) -> T,
     ) -> T {
         let size = self.data.len();
         let data = self
             .data
             .as_mut_ptr()
-            .cast::<llama_cpp_sys_2::llama_token_data>();
+            .cast::<llama_cpp_sys::llama_token_data>();
 
-        let mut c_llama_token_data_array = llama_cpp_sys_2::llama_token_data_array {
+        let mut c_llama_token_data_array = llama_cpp_sys::llama_token_data_array {
             data,
             size,
             selected: self.selected.and_then(|s| s.try_into().ok()).unwrap_or(-1),
@@ -124,7 +124,7 @@ impl LlamaTokenDataArray {
     pub fn apply_sampler(&mut self, sampler: &LlamaSampler) {
         unsafe {
             self.modify_as_c_llama_token_data_array(|c_llama_token_data_array| {
-                llama_cpp_sys_2::llama_sampler_apply(sampler.sampler, c_llama_token_data_array);
+                llama_cpp_sys::llama_sampler_apply(sampler.sampler, c_llama_token_data_array);
             });
         }
     }

@@ -10,7 +10,7 @@ pub mod data_array;
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[allow(clippy::module_name_repetitions)]
-pub struct LlamaToken(pub llama_cpp_sys_2::llama_token);
+pub struct LlamaToken(pub llama_cpp_sys::llama_token);
 
 impl Display for LlamaToken {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -22,7 +22,7 @@ impl LlamaToken {
     /// Create a new `LlamaToken` from a i32.
     ///
     /// ```
-    /// # use llama_cpp_2::token::LlamaToken;
+    /// # use llama_cpp::token::LlamaToken;
     /// let token = LlamaToken::new(0);
     /// assert_eq!(token, LlamaToken(0));
     /// ```

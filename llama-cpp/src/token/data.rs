@@ -9,26 +9,26 @@ use crate::token::LlamaToken;
 #[repr(transparent)]
 #[allow(clippy::module_name_repetitions)]
 pub struct LlamaTokenData {
-    data: llama_cpp_sys_2::llama_token_data,
+    data: llama_cpp_sys::llama_token_data,
 }
 
 impl LlamaTokenData {
     /// Create a new token data from a token, logit, and probability.
     /// ```
-    /// # use llama_cpp_2::token::LlamaToken;
-    /// # use llama_cpp_2::token::data::LlamaTokenData;
+    /// # use llama_cpp::token::LlamaToken;
+    /// # use llama_cpp::token::data::LlamaTokenData;
     /// let token = LlamaToken::new(1);
     /// let token_data = LlamaTokenData::new(token, 1.0, 1.0);
     #[must_use]
     pub fn new(LlamaToken(id): LlamaToken, logit: f32, p: f32) -> Self {
         LlamaTokenData {
-            data: llama_cpp_sys_2::llama_token_data { id, logit, p },
+            data: llama_cpp_sys::llama_token_data { id, logit, p },
         }
     }
     /// Get the token's id
     /// ```
-    /// # use llama_cpp_2::token::LlamaToken;
-    /// # use llama_cpp_2::token::data::LlamaTokenData;
+    /// # use llama_cpp::token::LlamaToken;
+    /// # use llama_cpp::token::data::LlamaTokenData;
     /// let token = LlamaToken::new(1);
     /// let token_data = LlamaTokenData::new(token, 1.0, 1.0);
     /// assert_eq!(token_data.id(), token);
@@ -40,8 +40,8 @@ impl LlamaTokenData {
 
     /// Get the token's logit
     /// ```
-    /// # use llama_cpp_2::token::LlamaToken;
-    /// # use llama_cpp_2::token::data::LlamaTokenData;
+    /// # use llama_cpp::token::LlamaToken;
+    /// # use llama_cpp::token::data::LlamaTokenData;
     /// let token = LlamaToken::new(1);
     /// let token_data = LlamaTokenData::new(token, 1.0, 1.0);
     /// assert_eq!(token_data.logit(), 1.0);
@@ -53,8 +53,8 @@ impl LlamaTokenData {
 
     /// Get the token's probability
     /// ```
-    /// # use llama_cpp_2::token::LlamaToken;
-    /// # use llama_cpp_2::token::data::LlamaTokenData;
+    /// # use llama_cpp::token::LlamaToken;
+    /// # use llama_cpp::token::data::LlamaTokenData;
     /// let token = LlamaToken::new(1);
     /// let token_data = LlamaTokenData::new(token, 1.0, 1.0);
     /// assert_eq!(token_data.p(), 1.0);
@@ -66,8 +66,8 @@ impl LlamaTokenData {
 
     /// Set the token's id
     /// ```
-    /// # use llama_cpp_2::token::LlamaToken;
-    /// # use llama_cpp_2::token::data::LlamaTokenData;
+    /// # use llama_cpp::token::LlamaToken;
+    /// # use llama_cpp::token::data::LlamaTokenData;
     /// let token = LlamaToken::new(1);
     /// let mut token_data = LlamaTokenData::new(token, 1.0, 1.0);
     /// token_data.set_id(LlamaToken::new(2));
@@ -79,8 +79,8 @@ impl LlamaTokenData {
 
     /// Set the token's logit
     /// ```
-    /// # use llama_cpp_2::token::LlamaToken;
-    /// # use llama_cpp_2::token::data::LlamaTokenData;
+    /// # use llama_cpp::token::LlamaToken;
+    /// # use llama_cpp::token::data::LlamaTokenData;
     /// let token = LlamaToken::new(1);
     /// let mut token_data = LlamaTokenData::new(token, 1.0, 1.0);
     /// token_data.set_logit(2.0);
@@ -92,8 +92,8 @@ impl LlamaTokenData {
 
     /// Set the token's probability
     /// ```
-    /// # use llama_cpp_2::token::LlamaToken;
-    /// # use llama_cpp_2::token::data::LlamaTokenData;
+    /// # use llama_cpp::token::LlamaToken;
+    /// # use llama_cpp::token::data::LlamaTokenData;
     /// let token = LlamaToken::new(1);
     /// let mut token_data = LlamaTokenData::new(token, 1.0, 1.0);
     /// token_data.set_p(2.0);
