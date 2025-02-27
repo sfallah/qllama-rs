@@ -1,21 +1,18 @@
 [package]
-name = "simple"
-version = "0.1.0"
+name = "reranker"
+version = "0.1.86"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 llama-cpp = { path = "../../llama-cpp", version = "0.1.0" }
 hf-hub = { workspace = true }
-clap = { workspace = true , features = ["derive"] }
+clap = { workspace = true, features = ["derive"] }
 anyhow = { workspace = true }
 encoding_rs = { workspace = true }
-tracing-subscriber = { workspace = true }
 
 [features]
 cuda = ["llama-cpp/cuda"]
-metal =  ["llama-cpp/metal"]
+metal = ["llama-cpp/metal"]
 native = ["llama-cpp/native"]
 vulkan = ["llama-cpp/vulkan"]
 
