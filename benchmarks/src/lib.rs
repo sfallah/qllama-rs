@@ -156,6 +156,15 @@ pub fn hf_tokenize(tokenizer: &Tokenizer, text: &str) -> Result<Vec<u32>, anyhow
     Ok(tokens)
 }
 
+pub fn hf_tokenize_fast(tokenizer: &Tokenizer, text: &str) -> Result<Vec<u32>, anyhow::Error> {
+    let tokens = tokenizer
+        .encode_fast(text, true)
+        .expect("failed to encode text")
+        .get_ids()
+        .to_vec();
+    Ok(tokens)
+}
+
 pub fn process_splits_batch(
     model: &LlamaModel,
     ctx: &mut LlamaContext,

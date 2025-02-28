@@ -11,8 +11,10 @@ use llama_cpp_rs_bench::{
     hf_tokenize, init_splitter, llama_cpp_tokenize, process_batch, process_single,
     process_splits_batch, to_llama_tokens,
 };
+use rayon::prelude::*;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 use tokenizers::Tokenizer;
 
@@ -46,16 +48,29 @@ pub fn llama_cpp_tokenize_benchmark(
     });
 }
 
-pub fn hf_tokenize_benchmark(
-    c: &mut Criterion,
-    hf_tokenizer: &Tokenizer,
-    sentences: &Vec<String>,
-) {
+pub fn hf_tokenize_benchmark(c: &mut Criterion, hf_tokenizer: &Tokenizer, sentences: &Vec<String>) {
     c.bench_function("hf_tokenize_benchmark", |b| {
         b.iter(|| {
             let tokens_list = sentences
                 .iter()
                 .map(|sentence| hf_tokenize(hf_tokenizer, sentence))
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            black_box(tokens_list);
+        });
+    });
+}
+
+pub fn hf_parallel_tokenize_benchmark(
+    c: &mut Criterion,
+    hf_tokenizer: Arc<Tokenizer>,
+    sentences: &Vec<String>,
+) {
+    c.bench_function("hf_parallel_tokenize_benchmark", |b| {
+        b.iter(|| {
+            let tokens_list = sentences
+                .par_iter()
+                .map(|sentence| hf_tokenize(&hf_tokenizer.clone(), sentence.as_str()))
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap();
             black_box(tokens_list);
@@ -138,9 +153,19 @@ pub fn benches() {
     );
 
     let hf_tokenizer = init_tokenizer(Some(model_id.clone()), None, true).unwrap();
+    let hf_tokenizer = Arc::new(hf_tokenizer);
     hf_tokenize_benchmark(
         &mut criterion,
-        &hf_tokenizer,
+        &hf_tokenizer.clone(),
+        &splits
+            .iter()
+            .map(|split| split.split_string.clone())
+            .collect(),
+    );
+
+    hf_parallel_tokenize_benchmark(
+        &mut criterion,
+        hf_tokenizer.clone(),
         &splits
             .iter()
             .map(|split| split.split_string.clone())
@@ -149,7 +174,6 @@ pub fn benches() {
 
     llama_cpp_embedding(&mut criterion, &mut ctx, &hf_tokens);
     llama_cpp_embedding_single(&mut criterion, &mut ctx, &hf_tokens);
-
 }
 
 criterion_main!(benches);
