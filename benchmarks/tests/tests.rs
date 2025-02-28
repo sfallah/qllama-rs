@@ -3,14 +3,24 @@ mod tetes {
     use candle_core::{Device, Tensor};
     use fast_text_splitter::config::SplitterLiteConfig;
     use fast_text_splitter::hf_tokenizer::HFTokenizer;
-    use llama_cpp_2::context::params::LlamaContextParams;
-    use llama_cpp_2::context::LlamaContext;
-    use llama_cpp_2::llama_backend::LlamaBackend;
-    use llama_cpp_2::model::params::LlamaModelParams;
-    use llama_cpp_2::model::LlamaModel;
-    use llama_cpp_rs_bench::{get_splitter_config, process_single, process_splits_batch, to_llama_tokens, SentenceScore};
+    use fast_text_splitter::splitter::split_node::utils::SplitResultLite;
+    use llama_cpp::context::LlamaContext;
+    use llama_cpp::model::LlamaModel;
+    use llama_cpp_rs_bench::split_data::{ SplitData, SummaryData};
+    use llama_cpp_rs_bench::{
+        get_embeddings, init_backend, init_context, init_model, init_splitter,
+        process_splits_batch, to_llama_tokens, SentenceScore,
+    };
+    use rayon::prelude::*;
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::Path;
+
+    fn ensure_dir_exists(dir_path: &str) -> std::io::Result<()> {
+        if !Path::new(dir_path).exists() {
+            fs::create_dir_all(dir_path)?;
+        }
+        Ok(())
+    }
 
     pub fn normalize_l2(ts: &Tensor) -> anyhow::Result<Tensor> {
         Ok(ts.broadcast_div(&ts.sqr()?.sum_keepdim(1)?.sqrt()?)?)
@@ -28,58 +38,277 @@ mod tetes {
         Ok(embeds1_normed.matmul(&embeds2_normed.transpose(0, 1)?)?)
     }
 
-    fn get_embeddings(ctx: &mut LlamaContext,
-                      model: &LlamaModel,
-                      splitter: &SplitterLiteConfig<HFTokenizer>,
-                      sentences: &Vec<String>,
-                      embeddings: &mut Vec<Vec<f32>>) -> Result<()> {
-        for sentence in sentences {
-            let splits = splitter.hf_splits(sentence.as_bytes());
-            println!("tokens: {:?}", splits);
-            let split = splits.first().unwrap();
-            let tokens = to_llama_tokens(&split.tokens.clone(), model)?;
-            let embedding = process_single(ctx, &tokens)?;
-            embeddings.push(embedding);
-        }
-        Ok(())
-    }
-
-    fn get_embeddings2(ctx: &mut LlamaContext,
-                      model: &LlamaModel,
-                      sentences: &Vec<String>,
-                      embeddings: &mut Vec<Vec<f32>>) -> Result<()> {
+    fn get_embeddings2(
+        ctx: &mut LlamaContext,
+        model: &LlamaModel,
+        sentences: &Vec<String>,
+        embeddings: &mut Vec<Vec<f32>>,
+    ) -> Result<()> {
         process_splits_batch(model, ctx, sentences)?;
         Ok(())
     }
+    fn text_file_embeddings(
+        model_path: &str,
+        text_file_path: &str,
+        out_dir: &str,
+        hf_model: Option<String>,
+    ) -> Result<()> {
+        let backend = init_backend()?;
+        let model = init_model(&model_path, &backend)?;
+        let mut ctx = init_context(&model, &backend, None)?;
+
+        let n_ctx = ctx.n_ctx() as usize;
+
+        let split_splitter = init_splitter(hf_model.clone(), None, Some(512), true)?;
+        let sentence_splitter = init_splitter(hf_model, None, Some(512), false)?;
+
+        let device = Device::Cpu;
+
+        // chech if out_dir exists if not create it
+        ensure_dir_exists(out_dir)?;
+
+        let data_path = text_file_path;
+        let binding = fs::read_to_string(data_path)?;
+        let data = binding.as_bytes();
+
+        let mx_tokens_splits = split_splitter.hf_splits(data);
+
+        let mut splits_data = Vec::new();
+
+        mx_tokens_splits
+            .iter()
+            .enumerate()
+            .for_each(|(split_id, mx_tokens_split)| {
+                process_split_data(
+                    out_dir,
+                    &mut ctx,
+                    n_ctx,
+                    &sentence_splitter,
+                    &device,
+                    &mut splits_data,
+                    split_id,
+                    mx_tokens_split,
+                );
+            });
+
+        // save splits data json
+        let splits_data_json = serde_json::to_string_pretty(&splits_data)?;
+        let splits_data_file = format!("{}/splits_data.json", out_dir);
+        fs::write(splits_data_file, splits_data_json)?;
+
+        Ok(())
+    }
+
+    fn json_file_embeddings(
+        model_path: &str,
+        json_file_path: &str,
+        out_dir: &str,
+        hf_model: Option<String>,
+    ) -> Result<()> {
+        let backend = init_backend()?;
+        let model = init_model(&model_path, &backend)?;
+        let mut ctx = init_context(&model, &backend, Some(4096))?;
+
+        let n_ctx = ctx.n_ctx() as usize;
+
+        let split_splitter = init_splitter(hf_model.clone(), None, Some(4096), true)?;
+        let sentence_splitter = init_splitter(hf_model, None, Some(4096), false)?;
+
+        let device = Device::Cpu;
+
+        let text_out_dir = format!("{}/text", out_dir);
+        ensure_dir_exists(text_out_dir.as_str())?;
+
+        let input_str = fs::read_to_string(json_file_path)?;
+        let inputs_vec: Vec<SummaryData> = serde_json::from_str(&input_str)?;
+
+
+        let mx_tokens_splits = inputs_vec.clone()
+            .into_iter()
+            .flat_map(|input| {
+                let data = input.text.as_bytes();
+                split_splitter.hf_splits(data)
+            })
+            .collect::<Vec<SplitResultLite>>();
+
+        let mut splits_data = Vec::new();
+
+        mx_tokens_splits
+            .iter()
+            .enumerate()
+            .for_each(|(split_id, mx_tokens_split)| {
+                process_split_data(
+                    text_out_dir.as_str(),
+                    &mut ctx,
+                    n_ctx,
+                    &sentence_splitter,
+                    &device,
+                    &mut splits_data,
+                    split_id,
+                    mx_tokens_split,
+                );
+            });
+
+        // save splits data json
+        let splits_data_json = serde_json::to_string_pretty(&splits_data)?;
+        let splits_data_file = format!("{}/splits_data.json", text_out_dir);
+        fs::write(splits_data_file, splits_data_json)?;
+
+        let summary_out_dir = format!("{}/summary", out_dir);
+        ensure_dir_exists(summary_out_dir.as_str())?;
+
+        let mx_tokens_splits = inputs_vec
+            .into_iter()
+            .flat_map(|input| {
+                let data = input.summary.as_bytes();
+                split_splitter.hf_splits(data)
+            })
+            .collect::<Vec<SplitResultLite>>();
+
+
+        let mut splits_data = Vec::new();
+        mx_tokens_splits
+            .iter()
+            .enumerate()
+            .for_each(|(split_id, mx_tokens_split)| {
+                process_split_data(
+                    summary_out_dir.as_str(),
+                    &mut ctx,
+                    n_ctx,
+                    &sentence_splitter,
+                    &device,
+                    &mut splits_data,
+                    split_id,
+                    mx_tokens_split,
+                );
+            });
+
+        // save splits data json
+        let splits_data_json = serde_json::to_string_pretty(&splits_data)?;
+        let splits_data_file = format!("{}/splits_data.json", summary_out_dir);
+        fs::write(splits_data_file, splits_data_json)?;
+
+
+
+        Ok(())
+    }
+
+
+    fn process_split_data(
+        out_dir: &str,
+        mut ctx: &mut LlamaContext,
+        n_ctx: usize,
+        sentence_splitter: &SplitterLiteConfig<HFTokenizer>,
+        device: &Device,
+        mut splits_data: &mut Vec<SplitData>,
+        split_id: usize,
+        mx_tokens_split: &SplitResultLite,
+    ) {
+        let split_id_str = format!("{:03}", split_id);
+
+        let llama_tokens = to_llama_tokens(&mx_tokens_split.tokens, &ctx.model)
+            .expect("unable to convert to llama tokens");
+        let mut split_embedding_vec = Vec::new();
+        get_embeddings(&llama_tokens, &mut split_embedding_vec, &mut ctx, n_ctx)
+            .expect("embeddings failed");
+
+        let split_embedding_tensor =
+            Tensor::new(split_embedding_vec, &device).expect("unable to create tensor");
+        let split_embedding_name = format!("split_embedding_{}", split_id_str);
+        let split_embedding_file = format!("{}.safetensors", split_embedding_name);
+        let split_embedding_path = format!("{}/{}", out_dir, split_embedding_file);
+
+        split_embedding_tensor
+            .save_safetensors(split_embedding_name.as_str(), split_embedding_path.as_str())
+            .expect("unable to save tensors");
+
+        let sentence_splits = sentence_splitter.hf_splits(mx_tokens_split.split_string.as_bytes());
+
+        let sentence_splits_strs = sentence_splits
+            .iter()
+            .map(|sentence_split| sentence_split.split_string.clone())
+            .collect::<Vec<String>>();
+
+        let mut embds = Vec::new();
+
+        sentence_splits.iter().for_each(|sentence_split| {
+            let llama_tokens = to_llama_tokens(&sentence_split.tokens, &ctx.model)
+                .expect("unable to convert to llama tokens");
+            get_embeddings(&llama_tokens, &mut embds, &mut ctx, n_ctx).expect("embeddings failed");
+        });
+        let tensors = Tensor::new(embds, &device).expect("unable to create tensor");
+
+        let sentence_embeddings_name = format!("sentence_embeddings_{}", split_id_str);
+        let sentence_embeddings_file = format!("{}.safetensors", sentence_embeddings_name);
+        let sentence_embeddings_path = format!("{}/{}", out_dir, sentence_embeddings_file);
+
+        let split_data = SplitData {
+            split_id,
+            no_tokens: mx_tokens_split.tokens.len(),
+            split_embedding_name: split_embedding_name.clone(),
+            split_embedding_file: split_embedding_file.clone(),
+            split_string: mx_tokens_split.split_string.clone(),
+            sentence_embeddings_name: sentence_embeddings_name.clone(),
+            sentence_embeddings_file: sentence_embeddings_file.clone(),
+            sentences: sentence_splits_strs.clone(),
+        };
+        splits_data.push(split_data);
+
+        tensors
+            .save_safetensors(
+                sentence_embeddings_name.as_str(),
+                sentence_embeddings_path.as_str(),
+            )
+            .expect("unable to save tensors");
+    }
 
     #[test]
-    fn test() {
-        let backend = LlamaBackend::init().unwrap();
-        //backend.void_logs();
+    fn test_text_file_embeddings() -> Result<()> {
+        let out_dir = "output/superlinear_embeddings/MiniLM-L6-v2_new";
+        //let out_dir = "output/superlinear_embeddings/multilingual-e5-large-instruct";
+        //let out_dir = "output/superlinear_embeddings/bge-large-en";
+        //let out_dir = "output/superlinear_embeddings/bge-m3";
+        //let out_dir = "output/United_States/bge-m3";
 
-        let model_params = if cfg!(any(feature = "cuda", feature = "vulkan", feature = "metal")) {
-            LlamaModelParams::default().with_n_gpu_layers(1000)
-        } else {
-            LlamaModelParams::default()
-        };
+        let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf";
+        //let model_path ="models/multilingual-e5-large-instruct-q8_0.gguf";
+        //let model_path = "models/bge-large-en-v1.5-q8_0.gguf";
+        //let model_path = "models/bge-m3-q4_k_m.gguf";
+        //let model_path = "models/gemma-2-9b-it-Q4_K_M.gguf";
 
-        let model_path = "/Users/sabafallah/dev/qimia_ai_dev/llama.cpp/models/all-MiniLM-L6-v2.gguf".to_string();
-        //let model_path = "/Users/sabafallah/dev/qimia_ai_dev/llama.cpp/models/multilingual-e5-large-instruct-q4_k_m.gguf".to_string();
-        let model_path = PathBuf::from(model_path);
+        //let text_file_path = "tests/test_data/United_States.txt";
+        let text_file_path = "tests/test_data/superlinear.txt";
 
-        let model = LlamaModel::load_from_file(&backend, model_path, &model_params).unwrap();
+        let hf_model = Some("sentence-transformers/all-MiniLM-L6-v2".to_string());
+        //let hf_model = Some("intfloat/multilingual-e5-large-instruct".to_string());
+        //let hf_model = Some("BAAI/bge-large-en-v1.5".to_string());
+        //let hf_model = Some("BAAI/bge-m3".to_string());
+        //let hf_model = Some("google/gemma-2-9b-it".to_string());
+        text_file_embeddings(&model_path, text_file_path, out_dir, hf_model)
+    }
 
-        // initialize the context
-        let ctx_params_default = LlamaContextParams::default();
-        let parallelism = std::thread::available_parallelism().unwrap().get() as u32;
-        println!("parallelism: {}", parallelism);
-        let ctx_params = LlamaContextParams::default().with_n_threads_batch(parallelism)
-            .with_embeddings(true);
+    #[test]
+    fn test_json_file_embeddings() -> Result<()> {
+        let out_dir = "output/gold_extractive/bge-m3";
+        let model_path = "models/bge-m3-q4_k_m.gguf";
+        let json_file_path = "tests/test_data/gold_extractive.json";
+        let hf_model = Some("BAAI/bge-m3".to_string());
+        json_file_embeddings(&model_path, json_file_path, out_dir, hf_model)
+    }
 
-        let mut ctx = model.new_context(&backend, ctx_params).unwrap();
+    #[test]
+    fn test() -> Result<()> {
+        let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf".to_string();
+        //let model_path = "models/all-MiniLM-L6-v2-ggml-model-f16.gguf".to_string();
+        //let model_path = "models/multilingual-e5-large-instruct-q4_k_m.gguf".to_string();
 
-        let splitter_config = get_splitter_config(None, Some(512)).unwrap();
+        let model_id = "sentence-transformers/all-MiniLM-L6-v2".to_string();
 
+        let backend = init_backend()?;
+        let model = init_model(&model_path, &backend)?;
+        let mut ctx = init_context(&model, &backend, None)?;
+
+        let splitter_config = init_splitter(Some(model_id), None, None, true)?;
 
         let sentences1 = [
             "The new movie is awesome",
@@ -88,14 +317,14 @@ mod tetes {
             "I love pasta",
         ];
         let sentences1 = sentences1.map(|s| s.to_string()).to_vec();
-        let mut embeddings1 = Vec::new();
-        get_embeddings(&mut ctx, &model, &splitter_config, &sentences1, &mut embeddings1).unwrap();
+        let embeddings1 = process_splits_batch(&model, &mut ctx, &sentences1)?;
 
-        get_embeddings2(&mut ctx, &model, &sentences1, &mut embeddings1).unwrap();
+        let cache_used = ctx.get_kv_cache_used_cells();
+        println!("cache_used: {}", cache_used);
+        let kv_cache_size = ctx.get_kv_cache_token_count();
+        println!("kv_cache_size: {}", kv_cache_size);
 
-        let embeddings1_ts = Tensor::new(embeddings1, &Device::Cpu).unwrap();
-        assert_eq!(embeddings1_ts.shape().dims2().unwrap(), (4usize, 384usize));
-
+        let embeddings1_ts = Tensor::new(embeddings1, &Device::Cpu)?;
 
         let sentences2 = [
             "The dog plays in the garden",
@@ -105,11 +334,9 @@ mod tetes {
         ];
 
         let sentences2 = sentences2.map(|s| s.to_string()).to_vec();
-        let mut embeddings2 = Vec::new();
-        get_embeddings(&mut ctx, &model, &splitter_config, &sentences2, &mut embeddings2).unwrap();
-        let embeddings2_ts = Tensor::new(embeddings2, &Device::Cpu).unwrap();
+        let embeddings2 = process_splits_batch(&model, &mut ctx, &sentences2)?;
 
-        assert_eq!(embeddings2_ts.shape().dims2().unwrap(), (4usize, 384usize));
+        let embeddings2_ts = Tensor::new(embeddings2, &Device::Cpu)?;
 
         let similarities = similarity_matrix(&embeddings1_ts, &embeddings2_ts, false).unwrap();
         let similarities_vec = similarities.to_vec2::<f32>().unwrap();
@@ -129,7 +356,6 @@ mod tetes {
                 println!("\t {:?}", sts);
             }
         }
-
-
+        Ok(())
     }
 }

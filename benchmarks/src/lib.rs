@@ -1,11 +1,18 @@
+pub mod split_data;
+
 use anyhow::{Context, Result};
 use fast_text_splitter::config::SplitterLiteConfig;
 use fast_text_splitter::hf_tokenizer::HFTokenizer;
-use llama_cpp_2::context::LlamaContext;
-use llama_cpp_2::llama_batch::LlamaBatch;
-use llama_cpp_2::model::{AddBos, LlamaModel};
-use llama_cpp_2::token::LlamaToken;
+use llama_cpp::context::params::LlamaContextParams;
+use llama_cpp::context::LlamaContext;
+use llama_cpp::llama_backend::LlamaBackend;
+use llama_cpp::llama_batch::LlamaBatch;
+use llama_cpp::model::params::LlamaModelParams;
+use llama_cpp::model::{AddBos, LlamaModel};
+use llama_cpp::token::LlamaToken;
 use std::fmt::Debug;
+use std::num::NonZeroU32;
+use std::path::PathBuf;
 
 #[derive(Clone, PartialEq)]
 pub struct SentenceScore {
@@ -37,18 +44,6 @@ impl Ord for SentenceScore {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.score.partial_cmp(&other.score).unwrap()
     }
-}
-
-
-pub fn get_splitter_config(model_id: Option<String>, max_tokens: Option<usize>) -> Result<SplitterLiteConfig<HFTokenizer>> {
-    let patterns = vec![
-        vec!["\n\n".to_string()],
-        vec!["\n".to_string()],
-        vec![".".to_string(), "!".to_string(), "?".to_string()],
-    ];
-    let splitter_config =
-        SplitterLiteConfig::new_hf(patterns.clone(), max_tokens, None, true, model_id);
-    Ok(splitter_config)
 }
 
 pub fn batch_decode(
@@ -125,7 +120,6 @@ pub fn process_batch(
     let mut max_seq_id_batch = 0;
     let mut output = Vec::with_capacity(splits_tokens.len());
 
-
     for tokens in splits_tokens {
         if batch.n_tokens() as usize + tokens.len() > n_batch {
             //println!("Batch decode, n_tokens: {}, no_seq: {}", batch.n_tokens(), max_seq_id_batch);
@@ -142,6 +136,14 @@ pub fn process_batch(
     Ok(output)
 }
 
+pub fn llama_cpp_tokenize(
+    model: &LlamaModel,
+    text: &str,
+) -> Result<Vec<LlamaToken>, anyhow::Error> {
+    let tokens = model.str_to_token(text, AddBos::Always)?;
+    Ok(tokens)
+}
+
 pub fn process_splits_batch(
     model: &LlamaModel,
     ctx: &mut LlamaContext,
@@ -153,11 +155,11 @@ pub fn process_splits_batch(
     let mut max_seq_id_batch = 0;
     let mut output = Vec::with_capacity(splits.len());
 
-    let splits_tokens = splits.iter()
+    let splits_tokens = splits
+        .iter()
         .map(|line| model.str_to_token(line.as_str(), AddBos::Always))
         .collect::<Result<Vec<_>, _>>()
         .with_context(|| format!("failed to tokenize {:?}", splits))?;
-
 
     for tokens in splits_tokens {
         if batch.n_tokens() as usize + tokens.len() > n_batch {
@@ -188,7 +190,6 @@ pub fn process_single(
     Ok(output)
 }
 
-
 pub fn to_llama_tokens(hf_tokens: &Vec<u32>, model: &LlamaModel) -> Result<Vec<LlamaToken>> {
     let mut tokenized_chunk: Vec<_> = hf_tokens
         .iter()
@@ -206,4 +207,65 @@ pub fn normalize(input: &[f32]) -> Vec<f32> {
         .sqrt();
 
     input.iter().map(|&val| val / magnitude).collect()
+}
+
+pub fn init_backend() -> Result<LlamaBackend> {
+    let mut backend = LlamaBackend::init()?;
+    backend.void_logs();
+    Ok(backend)
+}
+
+pub fn init_model(model_path: &str, backend: &LlamaBackend) -> Result<LlamaModel> {
+    let model_params = if cfg!(any(feature = "cuda", feature = "metal")) {
+        LlamaModelParams::default().with_n_gpu_layers(1000)
+    } else {
+        LlamaModelParams::default()
+    };
+    let model_path = PathBuf::from(model_path);
+    let model = LlamaModel::load_from_file(&backend, model_path, &model_params)?;
+    Ok(model)
+}
+
+pub fn init_context<'a>(
+    model: &'a LlamaModel,
+    backend: &'a LlamaBackend,
+    max_tokens: Option<u32>,
+) -> Result<LlamaContext<'a>> {
+    let parallelism = std::thread::available_parallelism().unwrap().get() as u32;
+    println!("parallelism: {}", parallelism);
+    let mut ctx_params = LlamaContextParams::default()
+        .with_n_threads(1)
+        .with_n_threads_batch(parallelism.try_into().unwrap())
+        .with_embeddings(true);
+
+    if let Some(max_tokens) = max_tokens {
+        ctx_params = ctx_params.with_n_ctx(NonZeroU32::new(max_tokens)).with_n_ubatch(max_tokens);
+    }
+
+    let ctx = model.new_context(&backend, ctx_params)?;
+
+    Ok(ctx)
+}
+
+pub fn init_splitter(
+    model_id: Option<String>,
+    patterns: Option<Vec<Vec<String>>>,
+    max_tokens: Option<usize>,
+    splits: bool,
+) -> Result<SplitterLiteConfig<HFTokenizer>> {
+    let patterns = patterns.unwrap_or(vec![
+        vec!["\n\n".to_string()],
+        vec!["\n".to_string()],
+        vec![".".to_string(), "!".to_string(), "?".to_string()],
+    ]);
+    let max_tokens = max_tokens.unwrap_or(512);
+    let merge_level = if splits { None } else { Some(patterns.len()) };
+    let splitter_config = SplitterLiteConfig::new_hf(
+        patterns.clone(),
+        Some(max_tokens),
+        merge_level,
+        true,
+        model_id.clone(),
+    );
+    Ok(splitter_config)
 }
