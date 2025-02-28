@@ -11,6 +11,7 @@ llama-cpp = { git = "https://gitlab.com/qimiaio/qimia-ai-dev/llama-cpp-rs.git", 
 candle-core = "0.8.3"
 serde_json = "1.0.128"
 serde = { version = "1.0.208", features = ["derive"] }
+tokenizers = { version = "0.21.0", features = ["http", "onig", "esaxx_fast"] }
 
 [dev-dependencies]
 rayon = "1.5.1"

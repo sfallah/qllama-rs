@@ -2,6 +2,8 @@ pub mod split_data;
 
 use anyhow::{Context, Result};
 use fast_text_splitter::config::SplitterLiteConfig;
+use fast_text_splitter::encodings::EncodingType::HFEncoding;
+use fast_text_splitter::encodings::Tokenize;
 use fast_text_splitter::hf_tokenizer::HFTokenizer;
 use llama_cpp::context::params::LlamaContextParams;
 use llama_cpp::context::LlamaContext;
@@ -13,6 +15,7 @@ use llama_cpp::token::LlamaToken;
 use std::fmt::Debug;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
+use tokenizers::Tokenizer;
 
 #[derive(Clone, PartialEq)]
 pub struct SentenceScore {
@@ -144,6 +147,15 @@ pub fn llama_cpp_tokenize(
     Ok(tokens)
 }
 
+pub fn hf_tokenize(tokenizer: &Tokenizer, text: &str) -> Result<Vec<u32>, anyhow::Error> {
+    let tokens = tokenizer
+        .encode(text, true)
+        .expect("failed to encode text")
+        .get_ids()
+        .to_vec();
+    Ok(tokens)
+}
+
 pub fn process_splits_batch(
     model: &LlamaModel,
     ctx: &mut LlamaContext,
@@ -239,7 +251,9 @@ pub fn init_context<'a>(
         .with_embeddings(true);
 
     if let Some(max_tokens) = max_tokens {
-        ctx_params = ctx_params.with_n_ctx(NonZeroU32::new(max_tokens)).with_n_ubatch(max_tokens);
+        ctx_params = ctx_params
+            .with_n_ctx(NonZeroU32::new(max_tokens))
+            .with_n_ubatch(max_tokens);
     }
 
     let ctx = model.new_context(&backend, ctx_params)?;

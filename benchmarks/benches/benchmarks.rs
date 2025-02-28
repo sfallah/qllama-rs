@@ -1,15 +1,20 @@
 use candle_core::Tensor;
 use criterion::{black_box, criterion_main, Criterion};
+use fast_text_splitter::hf_tokenizer::{init_tokenizer, HFTokenizer};
 use llama_cpp::context::params::LlamaContextParams;
 use llama_cpp::context::LlamaContext;
 use llama_cpp::llama_backend::LlamaBackend;
 use llama_cpp::model::params::LlamaModelParams;
 use llama_cpp::model::{AddBos, LlamaModel};
 use llama_cpp::token::LlamaToken;
-use llama_cpp_rs_bench::{init_splitter, llama_cpp_tokenize, process_batch, process_single, process_splits_batch, to_llama_tokens};
+use llama_cpp_rs_bench::{
+    hf_tokenize, init_splitter, llama_cpp_tokenize, process_batch, process_single,
+    process_splits_batch, to_llama_tokens,
+};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
+use tokenizers::Tokenizer;
 
 pub fn llama_cpp_embedding(
     c: &mut Criterion,
@@ -24,17 +29,33 @@ pub fn llama_cpp_embedding(
     });
 }
 
-pub fn llama_cpp_embedding_tokenize(
+pub fn llama_cpp_tokenize_benchmark(
     c: &mut Criterion,
     model: &LlamaModel,
-    ctx: &mut LlamaContext,
     sentences: &Vec<String>,
 ) {
-    c.bench_function("llama_cpp_embedding_tokenize", |b| {
+    c.bench_function("llama_cpp_tokenize_benchmark", |b| {
         b.iter(|| {
             let tokens_list = sentences
                 .iter()
                 .map(|sentence| llama_cpp_tokenize(model, sentence))
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            black_box(tokens_list);
+        });
+    });
+}
+
+pub fn hf_tokenize_benchmark(
+    c: &mut Criterion,
+    hf_tokenizer: &Tokenizer,
+    sentences: &Vec<String>,
+) {
+    c.bench_function("hf_tokenize_benchmark", |b| {
+        b.iter(|| {
+            let tokens_list = sentences
+                .iter()
+                .map(|sentence| hf_tokenize(hf_tokenizer, sentence))
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap();
             black_box(tokens_list);
@@ -93,7 +114,7 @@ pub fn benches() {
     let mut ctx = model.new_context(&backend, ctx_params).unwrap();
 
     //let splitter_config = get_splitter_config(Some("intfloat/multilingual-e5-large-instruct".to_string()), Some(512)).unwrap();
-    let splitter_config = init_splitter(Some(model_id), None, Some(512), true).unwrap();
+    let splitter_config = init_splitter(Some(model_id.clone()), None, Some(512), true).unwrap();
     let splits = splitter_config.hf_splits(data);
     println!("Number of splits: {:?}", splits.len());
     for (idx, split) in splits.iter().enumerate() {
@@ -107,17 +128,28 @@ pub fn benches() {
         .map(|split| to_llama_tokens(&split.tokens, &ctx.model).unwrap())
         .collect();
 
-    llama_cpp_embedding(&mut criterion, &mut ctx, &hf_tokens);
-    llama_cpp_embedding_tokenize(
+    llama_cpp_tokenize_benchmark(
         &mut criterion,
         &model,
-        &mut ctx,
         &splits
             .iter()
             .map(|split| split.split_string.clone())
             .collect(),
     );
+
+    let hf_tokenizer = init_tokenizer(Some(model_id.clone()), None, true).unwrap();
+    hf_tokenize_benchmark(
+        &mut criterion,
+        &hf_tokenizer,
+        &splits
+            .iter()
+            .map(|split| split.split_string.clone())
+            .collect(),
+    );
+
+    llama_cpp_embedding(&mut criterion, &mut ctx, &hf_tokens);
     llama_cpp_embedding_single(&mut criterion, &mut ctx, &hf_tokens);
+
 }
 
 criterion_main!(benches);
