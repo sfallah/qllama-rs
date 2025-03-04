@@ -84,3 +84,5 @@ dynamic-link = []
 vulkan = []
 native = []
 openmp = []
+shared-stdcxx = []
+

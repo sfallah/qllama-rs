@@ -17,7 +17,7 @@ tracing-core = { workspace = true }
 encoding_rs = { workspace = true }
 
 [features]
-default = ["openmp"]
+default = ["openmp", "android-shared-stdcxx"]
 cuda = ["llama-cpp-sys/cuda"]
 cuda-no-vmm = ["cuda", "llama-cpp-sys/cuda-no-vmm"]
 metal = ["llama-cpp-sys/metal"]
@@ -26,6 +26,8 @@ vulkan = ["llama-cpp-sys/vulkan"]
 native = ["llama-cpp-sys/native"]
 openmp = ["llama-cpp-sys/openmp"]
 sampler = []
+# Only has an impact on Android.
+android-shared-stdcxx = ["llama-cpp-sys/shared-stdcxx"]
 
 
 [target.'cfg(all(target_os = "macos", any(target_arch = "aarch64", target_arch = "arm64")))'.dependencies]
