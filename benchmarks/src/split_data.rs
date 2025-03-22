@@ -17,3 +17,9 @@ pub struct SummaryData {
     pub text: String,
     pub summary: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuerySummaries {
+    pub query: String,
+    pub summaries: Vec<String>,
+}

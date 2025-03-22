@@ -1,20 +1,19 @@
 mod tetes {
-    use anyhow::Result;
+    use anyhow::{bail, Context, Result};
     use candle_core::{Device, Tensor};
     use fast_text_splitter::config::SplitterLiteConfig;
     use fast_text_splitter::hf_tokenizer::HFTokenizer;
     use fast_text_splitter::splitter::split_node::utils::SplitResultLite;
     use llama_cpp::context::LlamaContext;
-    use llama_cpp::model::LlamaModel;
+    use llama_cpp::llama_backend::LlamaBackend;
+    use llama_cpp::model::{AddBos, LlamaModel};
     use llama_cpp::token::LlamaToken;
-    use llama_cpp_rs_bench::split_data::{SplitData, SummaryData};
-    use llama_cpp_rs_bench::{
-        get_embeddings, init_backend, init_context, init_model, init_splitter, llama_cpp_tokenize,
-        process_batch, process_splits_batch, SentenceScore,
-    };
+    use llama_cpp_rs_bench::split_data::{QuerySummaries, SplitData, SummaryData};
+    use llama_cpp_rs_bench::{batch_decode_rerank, get_embeddings, init_backend, init_context, init_model, init_reranker_context, init_splitter, llama_cpp_tokenize, process_batch, process_splits_batch, SentenceScore};
     use rayon::prelude::*;
     use std::fs;
     use std::path::Path;
+    use llama_cpp::llama_batch::LlamaBatch;
 
     fn ensure_dir_exists(dir_path: &str) -> std::io::Result<()> {
         if !Path::new(dir_path).exists() {
@@ -55,7 +54,7 @@ mod tetes {
         n_batch: Option<u32>,
         n_ubatch: Option<u32>,
     ) -> Result<()> {
-        let backend = init_backend()?;
+        let backend = init_backend(false)?;
         let model = init_model(&model_path, &backend)?;
         let mut ctx = init_context(&model, &backend, n_ctx, n_batch, n_ubatch)?;
 
@@ -107,7 +106,7 @@ mod tetes {
         out_dir: &str,
         hf_model: Option<String>,
     ) -> Result<()> {
-        let backend = init_backend()?;
+        let backend = init_backend(false)?;
         let model = init_model(&model_path, &backend)?;
         let mut ctx = init_context(&model, &backend, Some(4096), None, None)?;
 
@@ -322,7 +321,7 @@ mod tetes {
         //let model_id = "sentence-transformers/all-MiniLM-L6-v2".to_string();
         let model_id = "Snowflake/snowflake-arctic-embed-m-v1.5".to_string();
 
-        let backend = init_backend()?;
+        let backend = init_backend(false)?;
         let model = init_model(&model_path, &backend)?;
         let mut ctx = init_context(&model, &backend, Some(3072), Some(3072), Some(3072))?;
 
@@ -372,6 +371,136 @@ mod tetes {
                 println!("\t {:?}", sts);
             }
         }
+        Ok(())
+    }
+
+    #[test]
+    fn query_summaries_data() -> Result<()> {
+        let json_file_path = "tests/test_data/bert_paper_query_summaries.json";
+        let input_str = fs::read_to_string(json_file_path)?;
+        assert!(!input_str.is_empty());
+        let query_summaries = serde_json::from_str::<QuerySummaries>(&input_str);
+        assert!(query_summaries.is_ok());
+        let query_summaries = query_summaries?;
+        assert!(!query_summaries.query.is_empty());
+        assert!(!query_summaries.summaries.is_empty());
+        assert_eq!(query_summaries.summaries.len(), 20);
+        Ok(())
+    }
+
+    #[test]
+    fn bge_reranker_test() -> Result<()> {
+        let json_file_path = "tests/test_data/bert_paper_query_summaries.json";
+        let input_str = fs::read_to_string(json_file_path)?;
+        let query_summaries = serde_json::from_str::<QuerySummaries>(&input_str)?;
+
+        let model_path = "models/bge-m3-q4_k_m.gguf";
+        let backend = init_backend(true)?;
+        let model = init_model(model_path, &backend)?;
+        let pooling = Some("rank");
+        let mut ctx = init_reranker_context(
+            &model,
+            &backend,
+            pooling,
+            Some(2048),
+            Some(2048),
+            Some(2048),
+        )?;
+
+        let prompt_lines = {
+            let query = query_summaries.query;
+            let mut lines = Vec::new();
+            for summary in query_summaries.summaries {
+                // Todo!  update to get eos and sep from model instead of hardcoding
+                lines.push(format!(
+                    "{query}{eos}{sep}{summary}",
+                    sep = "<s>",
+                    eos = "</s>"
+                ));
+            }
+            lines
+        };
+
+        // tokenize the prompt
+        let tokens_lines_list = prompt_lines
+            .iter()
+            .map(|line| model.str_to_token(line, AddBos::Always))
+            .collect::<Result<Vec<_>, _>>()
+            .with_context(|| format!("failed to tokenize {:?}", prompt_lines))?;
+
+        let n_ctx = ctx.n_ctx() as usize;
+        let n_ctx_train = model.n_ctx_train();
+
+        eprintln!("n_ctx = {n_ctx}, n_ctx_train = {n_ctx_train}");
+
+        if tokens_lines_list.iter().any(|tok| n_ctx < tok.len()) {
+            bail!("One of the provided prompts exceeds the size of the context window");
+        }
+
+        let n_embd = model.n_embd();
+
+
+        // create a llama_batch with the size of the context
+        // we use this object to submit token data for decoding
+        let mut batch = LlamaBatch::new(2048, 1);
+
+        let mut max_seq_id_batch = 0;
+        let mut output = Vec::with_capacity(tokens_lines_list.len());
+        let normalise = true;
+        for tokens in &tokens_lines_list {
+            // Flush the batch if the next prompt would exceed our batch size
+            if (batch.n_tokens() as usize + tokens.len()) > 2048 {
+                batch_decode_rerank(
+                    &mut ctx,
+                    &mut batch,
+                    max_seq_id_batch,
+                    &mut output,
+                    normalise,
+                    pooling.unwrap().to_string(),
+                )?;
+                max_seq_id_batch = 0;
+                batch.clear();
+            }
+
+            batch.add_sequence(tokens, max_seq_id_batch, false)?;
+            max_seq_id_batch += 1;
+        }
+        // Handle final batch
+        batch_decode_rerank(
+            &mut ctx,
+            &mut batch,
+            max_seq_id_batch,
+            &mut output,
+            normalise,
+            pooling.unwrap().to_string(),
+        )?;
+
+        for (j, embeddings) in output.iter().enumerate() {
+            if pooling.unwrap() == "none" {
+                eprintln!("embedding {j}: ");
+                for i in 0..n_embd as usize {
+                    if !normalise {
+                        eprint!("{:6.5} ", embeddings[i]);
+                    } else {
+                        eprint!("{:9.6} ", embeddings[i]);
+                    }
+                }
+                eprintln!();
+            } else if pooling.unwrap() == "rank" {
+                eprintln!("rerank score {j}: {:8.3}", embeddings[0]);
+            } else {
+                eprintln!("embedding {j}: ");
+                for i in 0..n_embd as usize {
+                    if !normalise {
+                        eprint!("{:6.5} ", embeddings[i]);
+                    } else {
+                        eprint!("{:9.6} ", embeddings[i]);
+                    }
+                }
+                eprintln!();
+            }
+        }
+
         Ok(())
     }
 }

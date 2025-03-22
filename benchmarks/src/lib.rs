@@ -75,6 +75,47 @@ pub fn batch_decode(
     Ok(())
 }
 
+pub fn batch_decode_rerank(
+    ctx: &mut LlamaContext,
+    batch: &mut LlamaBatch,
+    s_batch: i32,
+    output: &mut Vec<Vec<f32>>,
+    normalise: bool,
+    pooling: String,
+) -> Result<()> {
+    eprintln!(
+        "{}: n_tokens = {}, n_seq = {}",
+        stringify!(batch_decode),
+        batch.n_tokens(),
+        s_batch
+    );
+
+    // Clear previous kv_cache values
+    ctx.clear_kv_cache();
+
+    ctx.decode(batch).with_context(|| "llama_decode() failed")?;
+
+    for i in 0..s_batch {
+        let embeddings = ctx
+            .embeddings_seq_ith(i)
+            .with_context(|| "Failed to get sequence embeddings")?;
+        let normalized = if normalise {
+            if pooling == "rank" {
+                normalize_embeddings(&embeddings, -1)
+            } else {
+                normalize_embeddings(&embeddings, 2)
+            }
+        } else {
+            embeddings.to_vec()
+        };
+        output.push(normalized);
+    }
+
+    batch.clear();
+
+    Ok(())
+}
+
 pub fn single_decode(
     ctx: &mut LlamaContext,
     batch: &mut LlamaBatch,
@@ -228,7 +269,43 @@ pub fn normalize(input: &[f32]) -> Vec<f32> {
     input.iter().map(|&val| val / magnitude).collect()
 }
 
-pub fn init_backend() -> Result<LlamaBackend> {
+/// Normalizes embeddings based on different normalization strategies
+fn normalize_embeddings(input: &[f32], embd_norm: i32) -> Vec<f32> {
+    let n = input.len();
+    let mut output = vec![0.0; n];
+
+    let sum = match embd_norm {
+        -1 => 1.0, // no normalization
+        0 => {
+            // max absolute
+            let max_abs = input.iter().map(|x| x.abs()).fold(0.0f32, f32::max) / 32760.0;
+            max_abs as f64
+        }
+        2 => {
+            // euclidean norm
+            input
+                .iter()
+                .map(|x| (*x as f64).powi(2))
+                .sum::<f64>()
+                .sqrt()
+        }
+        p => {
+            // p-norm
+            let sum = input.iter().map(|x| (x.abs() as f64).powi(p)).sum::<f64>();
+            sum.powf(1.0 / p as f64)
+        }
+    };
+
+    let norm = if sum > 0.0 { 1.0 / sum } else { 0.0 };
+
+    for i in 0..n {
+        output[i] = (input[i] as f64 * norm) as f32;
+    }
+
+    output
+}
+
+pub fn init_backend(log:bool) -> Result<LlamaBackend> {
     let mut backend = LlamaBackend::init()?;
     backend.void_logs();
     Ok(backend)
@@ -280,6 +357,48 @@ pub fn init_context<'a>(
     Ok(ctx)
 }
 
+pub fn init_reranker_context<'a>(
+    model: &'a LlamaModel,
+    backend: &'a LlamaBackend,
+    pooling: Option<&str>,
+    max_tokens: Option<u32>,
+    n_batch: Option<u32>,
+    n_ubatch: Option<u32>,
+) -> Result<LlamaContext<'a>> {
+    let pooling_type = match pooling {
+        Some("mean") => LlamaPoolingType::Mean,
+        Some("none") => LlamaPoolingType::None,
+        Some("rank") => LlamaPoolingType::Rank,
+        _ => LlamaPoolingType::Unspecified,
+    };
+    let parallelism = std::thread::available_parallelism()?.get() as u32;
+    println!("parallelism: {}", parallelism);
+    let mut ctx_params = LlamaContextParams::default()
+        //.with_n_threads(1)
+        .with_n_threads_batch(parallelism.try_into()?)
+        .with_embeddings(true)
+        .with_pooling_type(pooling_type);
+
+    if let Some(max_tokens) = max_tokens {
+        ctx_params = ctx_params
+            .with_n_ctx(NonZeroU32::new(max_tokens))
+            .with_n_ubatch(max_tokens);
+    }
+
+    if let Some(n_batch) = n_batch {
+        ctx_params = ctx_params.with_n_batch(n_batch);
+    }
+    if let Some(n_ubatch) = n_ubatch {
+        ctx_params = ctx_params.with_n_ubatch(n_ubatch);
+    }
+
+    ctx_params = ctx_params.with_pooling_type(LlamaPoolingType::Mean);
+
+
+    let ctx = model.new_context(&backend, ctx_params)?;
+
+    Ok(ctx)
+}
 pub fn init_splitter(
     model_id: Option<String>,
     patterns: Option<Vec<Vec<String>>>,
