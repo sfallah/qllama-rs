@@ -1,5 +1,5 @@
 {
-    "query": "How to can we apply pre-trained language representations to NLP tasks? Explain the method in detail?",
+    "query": "How can we apply pre-trained language representations to NLP tasks? Explain the method in detail?",
     "summaries": [
         " However, in prior\nwork, only sentence embeddings are transferred to\ndown-stream tasks, where BERT transfers all pa-\nrameters to initialize end-task model parameters.",
         "\nAs we show\nin Figure 1, C is used for next sentence predic-\ntion (NSP).5 Despite its simplicity, we demon-\nstrate in Section 5.1 that pre-training towards this\ntask is very bene\ufb01cial to both QA and NLI.",

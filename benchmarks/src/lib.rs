@@ -164,7 +164,11 @@ pub fn process_batch(
 
     for tokens in splits_tokens {
         if batch.n_tokens() as usize + tokens.len() > n_batch {
-            println!("Batch decode, n_tokens: {}, no_seq: {}", batch.n_tokens(), max_seq_id_batch);
+            println!(
+                "Batch decode, n_tokens: {}, no_seq: {}",
+                batch.n_tokens(),
+                max_seq_id_batch
+            );
             batch_decode(ctx, &mut batch, max_seq_id_batch, &mut output, true)?;
             max_seq_id_batch = 0;
         }
@@ -172,7 +176,11 @@ pub fn process_batch(
         max_seq_id_batch += 1;
     }
 
-    println!("Batch decode, n_tokens: {}, no_seq: {}", batch.n_tokens(), max_seq_id_batch);
+    println!(
+        "Batch decode, n_tokens: {}, no_seq: {}",
+        batch.n_tokens(),
+        max_seq_id_batch
+    );
     batch_decode(ctx, &mut batch, max_seq_id_batch, &mut output, true)?;
 
     Ok(output)
@@ -305,9 +313,11 @@ fn normalize_embeddings(input: &[f32], embd_norm: i32) -> Vec<f32> {
     output
 }
 
-pub fn init_backend(log:bool) -> Result<LlamaBackend> {
+pub fn init_backend(log: bool) -> Result<LlamaBackend> {
     let mut backend = LlamaBackend::init()?;
-    backend.void_logs();
+    if !log {
+        backend.void_logs();
+    }
     Ok(backend)
 }
 
@@ -351,7 +361,6 @@ pub fn init_context<'a>(
 
     ctx_params = ctx_params.with_pooling_type(LlamaPoolingType::Mean);
 
-
     let ctx = model.new_context(&backend, ctx_params)?;
 
     Ok(ctx)
@@ -393,7 +402,6 @@ pub fn init_reranker_context<'a>(
     }
 
     ctx_params = ctx_params.with_pooling_type(LlamaPoolingType::Mean);
-
 
     let ctx = model.new_context(&backend, ctx_params)?;
 
