@@ -394,7 +394,7 @@ mod tetes {
         let input_str = fs::read_to_string(json_file_path)?;
         let query_summaries = serde_json::from_str::<QuerySummaries>(&input_str)?;
 
-        let model_path = "models/bge-m3-q4_k_m.gguf";
+        let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf";
         let backend = init_backend(true)?;
         let model = init_model(model_path, &backend)?;
         let pooling = Some("rank");
@@ -407,15 +407,16 @@ mod tetes {
             Some(2048),
         )?;
 
+
         let prompt_lines = {
             let query = query_summaries.query;
             let mut lines = Vec::new();
-            for summary in query_summaries.summaries {
+            for summary in &query_summaries.summaries {
                 // Todo!  update to get eos and sep from model instead of hardcoding
                 lines.push(format!(
-                    "{query}{eos}{sep}{summary}",
-                    sep = "<s>",
-                    eos = "</s>"
+                    "{summary}{eos}{sep}{query}",
+                    eos = "</s>",
+                    sep = "</s>",
                 ));
             }
             lines
@@ -446,7 +447,7 @@ mod tetes {
 
         let mut max_seq_id_batch = 0;
         let mut output = Vec::with_capacity(tokens_lines_list.len());
-        let normalise = true;
+        let normalise = false;
         for tokens in &tokens_lines_list {
             // Flush the batch if the next prompt would exceed our batch size
             if (batch.n_tokens() as usize + tokens.len()) > 2048 {
@@ -475,30 +476,15 @@ mod tetes {
             pooling.unwrap().to_string(),
         )?;
 
-        for (j, embeddings) in output.iter().enumerate() {
-            if pooling.unwrap() == "none" {
-                eprintln!("embedding {j}: ");
-                for i in 0..n_embd as usize {
-                    if !normalise {
-                        eprint!("{:6.5} ", embeddings[i]);
-                    } else {
-                        eprint!("{:9.6} ", embeddings[i]);
-                    }
-                }
-                eprintln!();
-            } else if pooling.unwrap() == "rank" {
-                eprintln!("rerank score {j}: {:8.3}", embeddings[0]);
-            } else {
-                eprintln!("embedding {j}: ");
-                for i in 0..n_embd as usize {
-                    if !normalise {
-                        eprint!("{:6.5} ", embeddings[i]);
-                    } else {
-                        eprint!("{:9.6} ", embeddings[i]);
-                    }
-                }
-                eprintln!();
-            }
+        let scores = output.iter().map(|embeddings| embeddings[0]).collect::<Vec<f32>>();
+        let mut scores = scores.iter().enumerate().collect::<Vec<(usize, &f32)>>();
+        // sort by score
+        scores.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
+        for (idx, score) in scores.iter() {
+            println!("--------------- {} ---------------", idx);
+            println!("score: {}", score);
+            let summary = query_summaries.summaries.get(*idx).unwrap();
+            println!("summary: {}", summary);
         }
 
         Ok(())
