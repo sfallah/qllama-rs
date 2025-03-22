@@ -2,10 +2,8 @@ pub mod split_data;
 
 use anyhow::{Context, Result};
 use fast_text_splitter::config::SplitterLiteConfig;
-use fast_text_splitter::encodings::EncodingType::HFEncoding;
-use fast_text_splitter::encodings::Tokenize;
 use fast_text_splitter::hf_tokenizer::HFTokenizer;
-use llama_cpp::context::params::LlamaContextParams;
+use llama_cpp::context::params::{LlamaContextParams, LlamaPoolingType};
 use llama_cpp::context::LlamaContext;
 use llama_cpp::llama_backend::LlamaBackend;
 use llama_cpp::llama_batch::LlamaBatch;
@@ -125,7 +123,7 @@ pub fn process_batch(
 
     for tokens in splits_tokens {
         if batch.n_tokens() as usize + tokens.len() > n_batch {
-            //println!("Batch decode, n_tokens: {}, no_seq: {}", batch.n_tokens(), max_seq_id_batch);
+            println!("Batch decode, n_tokens: {}, no_seq: {}", batch.n_tokens(), max_seq_id_batch);
             batch_decode(ctx, &mut batch, max_seq_id_batch, &mut output, true)?;
             max_seq_id_batch = 0;
         }
@@ -133,8 +131,8 @@ pub fn process_batch(
         max_seq_id_batch += 1;
     }
 
+    println!("Batch decode, n_tokens: {}, no_seq: {}", batch.n_tokens(), max_seq_id_batch);
     batch_decode(ctx, &mut batch, max_seq_id_batch, &mut output, true)?;
-    //println!("Batch decode, n_tokens: {}, no_seq: {}", batch.n_tokens(), max_seq_id_batch);
 
     Ok(output)
 }
@@ -251,12 +249,14 @@ pub fn init_context<'a>(
     model: &'a LlamaModel,
     backend: &'a LlamaBackend,
     max_tokens: Option<u32>,
+    n_batch: Option<u32>,
+    n_ubatch: Option<u32>,
 ) -> Result<LlamaContext<'a>> {
-    let parallelism = std::thread::available_parallelism().unwrap().get() as u32;
+    let parallelism = std::thread::available_parallelism()?.get() as u32;
     println!("parallelism: {}", parallelism);
     let mut ctx_params = LlamaContextParams::default()
-        .with_n_threads(1)
-        .with_n_threads_batch(parallelism.try_into().unwrap())
+        //.with_n_threads(1)
+        .with_n_threads_batch(parallelism.try_into()?)
         .with_embeddings(true);
 
     if let Some(max_tokens) = max_tokens {
@@ -264,6 +264,16 @@ pub fn init_context<'a>(
             .with_n_ctx(NonZeroU32::new(max_tokens))
             .with_n_ubatch(max_tokens);
     }
+
+    if let Some(n_batch) = n_batch {
+        ctx_params = ctx_params.with_n_batch(n_batch);
+    }
+    if let Some(n_ubatch) = n_ubatch {
+        ctx_params = ctx_params.with_n_ubatch(n_ubatch);
+    }
+
+    ctx_params = ctx_params.with_pooling_type(LlamaPoolingType::Mean);
+
 
     let ctx = model.new_context(&backend, ctx_params)?;
 

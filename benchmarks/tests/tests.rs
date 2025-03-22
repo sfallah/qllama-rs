@@ -6,10 +6,11 @@ mod tetes {
     use fast_text_splitter::splitter::split_node::utils::SplitResultLite;
     use llama_cpp::context::LlamaContext;
     use llama_cpp::model::LlamaModel;
-    use llama_cpp_rs_bench::split_data::{ SplitData, SummaryData};
+    use llama_cpp::token::LlamaToken;
+    use llama_cpp_rs_bench::split_data::{SplitData, SummaryData};
     use llama_cpp_rs_bench::{
-        get_embeddings, init_backend, init_context, init_model, init_splitter,
-        process_splits_batch, to_llama_tokens, SentenceScore,
+        get_embeddings, init_backend, init_context, init_model, init_splitter, llama_cpp_tokenize,
+        process_batch, process_splits_batch, SentenceScore,
     };
     use rayon::prelude::*;
     use std::fs;
@@ -42,25 +43,26 @@ mod tetes {
         ctx: &mut LlamaContext,
         model: &LlamaModel,
         sentences: &Vec<String>,
-        embeddings: &mut Vec<Vec<f32>>,
-    ) -> Result<()> {
-        process_splits_batch(model, ctx, sentences)?;
-        Ok(())
+    ) -> Result<Vec<Vec<f32>>> {
+        process_splits_batch(model, ctx, sentences)
     }
     fn text_file_embeddings(
         model_path: &str,
         text_file_path: &str,
         out_dir: &str,
         hf_model: Option<String>,
+        n_ctx: Option<u32>,
+        n_batch: Option<u32>,
+        n_ubatch: Option<u32>,
     ) -> Result<()> {
         let backend = init_backend()?;
         let model = init_model(&model_path, &backend)?;
-        let mut ctx = init_context(&model, &backend, None)?;
+        let mut ctx = init_context(&model, &backend, n_ctx, n_batch, n_ubatch)?;
 
         let n_ctx = ctx.n_ctx() as usize;
 
-        let split_splitter = init_splitter(hf_model.clone(), None, Some(512), true)?;
-        let sentence_splitter = init_splitter(hf_model, None, Some(512), false)?;
+        let split_splitter = init_splitter(hf_model.clone(), None, Some(400), true)?;
+        let sentence_splitter = init_splitter(hf_model, None, Some(400), false)?;
 
         let device = Device::Cpu;
 
@@ -107,7 +109,7 @@ mod tetes {
     ) -> Result<()> {
         let backend = init_backend()?;
         let model = init_model(&model_path, &backend)?;
-        let mut ctx = init_context(&model, &backend, Some(4096))?;
+        let mut ctx = init_context(&model, &backend, Some(4096), None, None)?;
 
         let n_ctx = ctx.n_ctx() as usize;
 
@@ -122,8 +124,8 @@ mod tetes {
         let input_str = fs::read_to_string(json_file_path)?;
         let inputs_vec: Vec<SummaryData> = serde_json::from_str(&input_str)?;
 
-
-        let mx_tokens_splits = inputs_vec.clone()
+        let mx_tokens_splits = inputs_vec
+            .clone()
             .into_iter()
             .flat_map(|input| {
                 let data = input.text.as_bytes();
@@ -165,7 +167,6 @@ mod tetes {
             })
             .collect::<Vec<SplitResultLite>>();
 
-
         let mut splits_data = Vec::new();
         mx_tokens_splits
             .iter()
@@ -188,11 +189,8 @@ mod tetes {
         let splits_data_file = format!("{}/splits_data.json", summary_out_dir);
         fs::write(splits_data_file, splits_data_json)?;
 
-
-
         Ok(())
     }
-
 
     fn process_split_data(
         out_dir: &str,
@@ -206,8 +204,8 @@ mod tetes {
     ) {
         let split_id_str = format!("{:03}", split_id);
 
-        let llama_tokens = to_llama_tokens(&mx_tokens_split.tokens, &ctx.model)
-            .expect("unable to convert to llama tokens");
+        let llama_tokens = llama_cpp_tokenize(&ctx.model, mx_tokens_split.split_string.as_str())
+            .expect("unable to tokenize");
         let mut split_embedding_vec = Vec::new();
         get_embeddings(&llama_tokens, &mut split_embedding_vec, &mut ctx, n_ctx)
             .expect("embeddings failed");
@@ -229,13 +227,16 @@ mod tetes {
             .map(|sentence_split| sentence_split.split_string.clone())
             .collect::<Vec<String>>();
 
-        let mut embds = Vec::new();
-
-        sentence_splits.iter().for_each(|sentence_split| {
-            let llama_tokens = to_llama_tokens(&sentence_split.tokens, &ctx.model)
-                .expect("unable to convert to llama tokens");
-            get_embeddings(&llama_tokens, &mut embds, &mut ctx, n_ctx).expect("embeddings failed");
-        });
+        let llama_tokens_list: Vec<Vec<LlamaToken>> = sentence_splits
+            .iter()
+            .map(|sentence_split| {
+                let llama_tokens =
+                    llama_cpp_tokenize(&ctx.model, sentence_split.split_string.as_str())
+                        .expect("unable to convert to llama tokens");
+                llama_tokens
+            })
+            .collect();
+        let embds = process_batch(&mut ctx, &llama_tokens_list).expect("unable to process batch");
         let tensors = Tensor::new(embds, &device).expect("unable to create tensor");
 
         let sentence_embeddings_name = format!("sentence_embeddings_{}", split_id_str);
@@ -264,27 +265,41 @@ mod tetes {
 
     #[test]
     fn test_text_file_embeddings() -> Result<()> {
-        let out_dir = "output/superlinear_embeddings/MiniLM-L6-v2_new";
+        let out_dir = "output/superlinear_embeddings/snowflake-arctic-embed-m-v1.5";
+        //let out_dir = "output/superlinear_embeddings/gte-Qwen2-1.5B-instruct";
         //let out_dir = "output/superlinear_embeddings/multilingual-e5-large-instruct";
         //let out_dir = "output/superlinear_embeddings/bge-large-en";
         //let out_dir = "output/superlinear_embeddings/bge-m3";
         //let out_dir = "output/United_States/bge-m3";
+        //let out_dir = "output/superlinear_embeddings/all-MiniLM-L6-v2";
 
-        let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf";
+        //let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf";
         //let model_path ="models/multilingual-e5-large-instruct-q8_0.gguf";
         //let model_path = "models/bge-large-en-v1.5-q8_0.gguf";
         //let model_path = "models/bge-m3-q4_k_m.gguf";
         //let model_path = "models/gemma-2-9b-it-Q4_K_M.gguf";
+        let model_path = "models/snowflake-arctic-embed-m-v1.5-q4_k_m.gguf";
+        //let model_path = "models/gte-qwen2-1.5b-instruct-q4_k_m.gguf";
 
         //let text_file_path = "tests/test_data/United_States.txt";
         let text_file_path = "tests/test_data/superlinear.txt";
 
-        let hf_model = Some("sentence-transformers/all-MiniLM-L6-v2".to_string());
+        //let hf_model = Some("sentence-transformers/all-MiniLM-L6-v2".to_string());
+        let hf_model = Some("Snowflake/snowflake-arctic-embed-m-v1.5".to_string());
+        //let hf_model = Some("Alibaba-NLP/gte-Qwen2-1.5B-instruct".to_string());
         //let hf_model = Some("intfloat/multilingual-e5-large-instruct".to_string());
         //let hf_model = Some("BAAI/bge-large-en-v1.5".to_string());
         //let hf_model = Some("BAAI/bge-m3".to_string());
         //let hf_model = Some("google/gemma-2-9b-it".to_string());
-        text_file_embeddings(&model_path, text_file_path, out_dir, hf_model)
+        text_file_embeddings(
+            &model_path,
+            text_file_path,
+            out_dir,
+            hf_model,
+            Some(512),
+            Some(512),
+            Some(512),
+        )
     }
 
     #[test]
@@ -298,17 +313,18 @@ mod tetes {
 
     #[test]
     fn test() -> Result<()> {
-        let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf".to_string();
+        //let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf".to_string();
+        let model_path = "models/snowflake-arctic-embed-m-v1.5-q4_k_m.gguf".to_string();
+
         //let model_path = "models/all-MiniLM-L6-v2-ggml-model-f16.gguf".to_string();
         //let model_path = "models/multilingual-e5-large-instruct-q4_k_m.gguf".to_string();
 
-        let model_id = "sentence-transformers/all-MiniLM-L6-v2".to_string();
+        //let model_id = "sentence-transformers/all-MiniLM-L6-v2".to_string();
+        let model_id = "Snowflake/snowflake-arctic-embed-m-v1.5".to_string();
 
         let backend = init_backend()?;
         let model = init_model(&model_path, &backend)?;
-        let mut ctx = init_context(&model, &backend, None)?;
-
-        let splitter_config = init_splitter(Some(model_id), None, None, true)?;
+        let mut ctx = init_context(&model, &backend, Some(3072), Some(3072), Some(3072))?;
 
         let sentences1 = [
             "The new movie is awesome",
