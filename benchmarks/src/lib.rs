@@ -277,7 +277,6 @@ pub fn normalize(input: &[f32]) -> Vec<f32> {
     input.iter().map(|&val| val / magnitude).collect()
 }
 
-/// Normalizes embeddings based on different normalization strategies
 fn normalize_embeddings(input: &[f32], embd_norm: i32) -> Vec<f32> {
     let n = input.len();
     let mut output = vec![0.0; n];
@@ -369,40 +368,18 @@ pub fn init_context<'a>(
 pub fn init_reranker_context<'a>(
     model: &'a LlamaModel,
     backend: &'a LlamaBackend,
-    pooling: Option<&str>,
-    max_tokens: Option<u32>,
-    n_batch: Option<u32>,
-    n_ubatch: Option<u32>,
+    max_tokens: u32
 ) -> Result<LlamaContext<'a>> {
-    let pooling_type = match pooling {
-        Some("mean") => LlamaPoolingType::Mean,
-        Some("none") => LlamaPoolingType::None,
-        Some("rank") => LlamaPoolingType::Rank,
-        _ => LlamaPoolingType::Unspecified,
-    };
+    let pooling_type = LlamaPoolingType::Rank;
     let parallelism = std::thread::available_parallelism()?.get() as u32;
     println!("parallelism: {}", parallelism);
     let mut ctx_params = LlamaContextParams::default()
-        //.with_n_threads(1)
         .with_n_threads_batch(parallelism.try_into()?)
         .with_embeddings(true)
-        .with_pooling_type(pooling_type);
-
-    if let Some(max_tokens) = max_tokens {
-        ctx_params = ctx_params
-            .with_n_ctx(NonZeroU32::new(max_tokens))
-            .with_n_ubatch(max_tokens);
-    }
-
-    if let Some(n_batch) = n_batch {
-        ctx_params = ctx_params.with_n_batch(n_batch);
-    }
-    if let Some(n_ubatch) = n_ubatch {
-        ctx_params = ctx_params.with_n_ubatch(n_ubatch);
-    }
-
-    ctx_params = ctx_params.with_pooling_type(LlamaPoolingType::Mean);
-
+        .with_pooling_type(pooling_type)
+        .with_n_ctx(NonZeroU32::new(max_tokens))
+        .with_n_ubatch(max_tokens)
+        .with_n_batch(max_tokens);
     let ctx = model.new_context(&backend, ctx_params)?;
 
     Ok(ctx)

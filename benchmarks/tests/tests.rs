@@ -397,16 +397,16 @@ mod tetes {
         let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf";
         let backend = init_backend(true)?;
         let model = init_model(model_path, &backend)?;
-        let pooling = Some("rank");
+        let max_tokens = 4096;
         let mut ctx = init_reranker_context(
             &model,
             &backend,
-            pooling,
-            Some(2048),
-            Some(2048),
-            Some(2048),
+            max_tokens,
         )?;
 
+        let eos = "</s>";
+        let sep = "</s>";
+        let bos = "<s>";
 
         let prompt_lines = {
             let query = query_summaries.query;
@@ -414,9 +414,7 @@ mod tetes {
             for summary in &query_summaries.summaries {
                 // Todo!  update to get eos and sep from model instead of hardcoding
                 lines.push(format!(
-                    "{summary}{eos}{sep}{query}",
-                    eos = "</s>",
-                    sep = "</s>",
+                    "{bos}{query}{eos}{sep}{summary}{eos}"
                 ));
             }
             lines
@@ -425,14 +423,12 @@ mod tetes {
         // tokenize the prompt
         let tokens_lines_list = prompt_lines
             .iter()
-            .map(|line| model.str_to_token(line, AddBos::Always))
+            .map(|line| model.str_to_token(line, AddBos::Never))
             .collect::<Result<Vec<_>, _>>()
             .with_context(|| format!("failed to tokenize {:?}", prompt_lines))?;
 
         let n_ctx = ctx.n_ctx() as usize;
-        let n_ctx_train = model.n_ctx_train();
 
-        eprintln!("n_ctx = {n_ctx}, n_ctx_train = {n_ctx_train}");
 
         if tokens_lines_list.iter().any(|tok| n_ctx < tok.len()) {
             bail!("One of the provided prompts exceeds the size of the context window");
@@ -443,21 +439,21 @@ mod tetes {
 
         // create a llama_batch with the size of the context
         // we use this object to submit token data for decoding
-        let mut batch = LlamaBatch::new(2048, 1);
+        let mut batch = LlamaBatch::new(max_tokens as usize, 1);
 
         let mut max_seq_id_batch = 0;
         let mut output = Vec::with_capacity(tokens_lines_list.len());
-        let normalise = false;
+        let normalise = true;
         for tokens in &tokens_lines_list {
             // Flush the batch if the next prompt would exceed our batch size
-            if (batch.n_tokens() as usize + tokens.len()) > 2048 {
+            if (batch.n_tokens() as usize + tokens.len()) > max_tokens as usize {
                 batch_decode_rerank(
                     &mut ctx,
                     &mut batch,
                     max_seq_id_batch,
                     &mut output,
                     normalise,
-                    pooling.unwrap().to_string(),
+                    "rank".to_string(),
                 )?;
                 max_seq_id_batch = 0;
                 batch.clear();
@@ -473,7 +469,7 @@ mod tetes {
             max_seq_id_batch,
             &mut output,
             normalise,
-            pooling.unwrap().to_string(),
+            "rank".to_string(),
         )?;
 
         let scores = output.iter().map(|embeddings| embeddings[0]).collect::<Vec<f32>>();

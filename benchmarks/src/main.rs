@@ -66,11 +66,15 @@ fn main() -> Result<()> {
     let query = query_summaries.query;
     let documents = query_summaries.summaries;
 
+    let eos = "</s>";
+    let sep = "</s>";
+    let bos = "<s>";
+
     let prompt_lines = {
         let mut lines = Vec::new();
         for doc in &documents {
             // Todo!  update to get eos and sep from model instead of hardcoding
-            lines.push(format!("{query}{eos}{sep}{doc}", sep = "<s>", eos = "</s>"));
+            lines.push(format!("{bos}{query}{eos}{sep}{doc}{eos}"));
         }
         lines
     };
@@ -78,14 +82,11 @@ fn main() -> Result<()> {
     // tokenize the prompt
     let tokens_lines_list = prompt_lines
         .iter()
-        .map(|line| model.str_to_token(line, AddBos::Always))
+        .map(|line| model.str_to_token(line, AddBos::Never))
         .collect::<Result<Vec<_>, _>>()
         .with_context(|| format!("failed to tokenize {:?}", prompt_lines))?;
 
     let n_ctx = ctx.n_ctx() as usize;
-    let n_ctx_train = model.n_ctx_train();
-
-    eprintln!("n_ctx = {n_ctx}, n_ctx_train = {n_ctx_train}");
 
     if tokens_lines_list.iter().any(|tok| n_ctx < tok.len()) {
         bail!("One of the provided prompts exceeds the size of the context window");
@@ -98,7 +99,7 @@ fn main() -> Result<()> {
 
     // create a llama_batch with the size of the context
     // we use this object to submit token data for decoding
-    let mut batch = LlamaBatch::new(2048, 1);
+    let mut batch = LlamaBatch::new(max_tokens as usize, 1);
 
     // Todo!  update to get n_embd  to init vector size for better memory management
     // let mut n_embd_count = if pooling == "none" {
@@ -113,7 +114,7 @@ fn main() -> Result<()> {
 
     for tokens in &tokens_lines_list {
         // Flush the batch if the next prompt would exceed our batch size
-        if (batch.n_tokens() as usize + tokens.len()) > 2048 {
+        if (batch.n_tokens() as usize + tokens.len()) > max_tokens as usize {
             batch_decode(
                 &mut ctx,
                 &mut batch,
@@ -141,7 +142,10 @@ fn main() -> Result<()> {
 
     let t_main_end = ggml_time_us();
 
-    let scores = output.iter().map(|embeddings| embeddings[0]).collect::<Vec<f32>>();
+    let scores = output
+        .iter()
+        .map(|embeddings| embeddings[0])
+        .collect::<Vec<f32>>();
     let mut scores = scores.iter().enumerate().collect::<Vec<(usize, &f32)>>();
     // sort by score
     scores.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
