@@ -83,12 +83,6 @@ pub fn batch_decode_rerank(
     normalise: bool,
     pooling: String,
 ) -> Result<()> {
-    eprintln!(
-        "{}: n_tokens = {}, n_seq = {}",
-        stringify!(batch_decode),
-        batch.n_tokens(),
-        s_batch
-    );
 
     // Clear previous kv_cache values
     ctx.clear_kv_cache();
@@ -164,11 +158,6 @@ pub fn process_batch(
 
     for tokens in splits_tokens {
         if batch.n_tokens() as usize + tokens.len() > n_batch {
-            println!(
-                "Batch decode, n_tokens: {}, no_seq: {}",
-                batch.n_tokens(),
-                max_seq_id_batch
-            );
             batch_decode(ctx, &mut batch, max_seq_id_batch, &mut output, true)?;
             max_seq_id_batch = 0;
         }
