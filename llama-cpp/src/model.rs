@@ -165,6 +165,13 @@ impl LlamaModel {
         LlamaToken(token)
     }
 
+    /// Get the separator token.
+    #[must_use]
+    pub fn token_sep(&self) -> LlamaToken {
+        let token = unsafe { llama_cpp_sys::llama_vocab_sep(self.vocab_ptr()) };
+        LlamaToken(token)
+    }
+
     /// Get the newline token.
     #[must_use]
     pub fn token_nl(&self) -> LlamaToken {
