@@ -1,6 +1,7 @@
 use anyhow::Context;
 use criterion::{black_box, criterion_main, Criterion};
 use fast_text_splitter::hf_tokenizer::init_tokenizer;
+use indexmap::IndexMap;
 use llama_cpp::context::params::LlamaContextParams;
 use llama_cpp::context::LlamaContext;
 use llama_cpp::ggml_time_us;
@@ -183,6 +184,112 @@ pub fn reranker_benchmark(
         });
     });
 }
+
+pub fn reranker_benchmark_improved(
+    c: &mut Criterion,
+    ctx: &mut LlamaContext,
+    model: &LlamaModel,
+    query_summaries: &QuerySummaries,
+    max_tokens: u32,
+) {
+    let query = &query_summaries.query;
+    let texts = &query_summaries.summaries;
+
+    let bos_token = model.token_bos();
+    let eos_token = model.token_eos();
+    let sep_token = model.token_sep();
+
+
+    c.bench_function("reranker_benchmark_improved", |b| {
+        b.iter(|| {
+            let query_tokens = match model.str_to_token(&query, AddBos::Never) {
+                Ok(tokens) => tokens,
+                Err(e) => {
+                    let error_msg = format!("Failed to tokenize query: {:?}", e);
+                    eprintln!("{}", error_msg);
+                    panic!("{}", error_msg);
+                }
+            };
+            let query_no_tokens = query_tokens.len();
+            let n_ctx = ctx.n_ctx() as usize;
+
+            let mut sequence_pairs_map = IndexMap::new();
+            for (idx, text) in texts.iter().enumerate() {
+                let text_tokens = match model.str_to_token(text, AddBos::Never) {
+                    Ok(tokens) => tokens,
+                    Err(e) => {
+                        let error_msg = format!(
+                            "Failed to tokenize seq: {}\n, text: {:?}\n, error: {:?}",
+                            idx, text, e
+                        );
+                        eprintln!("{}", error_msg);
+                        panic!("{}", error_msg);
+                    }
+                };
+                let text_no_tokens = text_tokens.len();
+                if text_no_tokens + query_no_tokens + 4 > n_ctx as usize {
+                    let error_msg = format!(
+                        "Sequence Pair no_tokens exceeds n_ctx. Query: {}, text: {}, n_ctx: {}",
+                        query_no_tokens, text_no_tokens, n_ctx
+                    );
+                    eprintln!("{}", error_msg);
+                    panic!("{}", error_msg);
+                }
+                //"{bos}{query}{eos}{sep}{doc}{eos}"
+                let mut sequence_pairs_tokens = query_tokens.clone();
+                sequence_pairs_tokens.insert(0, bos_token);
+                sequence_pairs_tokens.push(eos_token);
+                sequence_pairs_tokens.push(sep_token);
+                sequence_pairs_tokens.append(&mut text_tokens.clone());
+                sequence_pairs_tokens.push(eos_token);
+                sequence_pairs_map.insert(idx, sequence_pairs_tokens);
+            }
+
+            let n_ctx = ctx.n_ctx() as usize;
+            let mut batch = LlamaBatch::new(max_tokens as usize, 1);
+
+            let mut max_seq_id_batch = 0;
+            let mut output = Vec::with_capacity(sequence_pairs_map.len());
+
+            for tokens in sequence_pairs_map.values().into_iter() {
+                // Flush the batch if the next prompt would exceed our batch size
+                if (batch.n_tokens() as usize + tokens.len()) > n_ctx as usize {
+                    batch_decode_rerank(
+                        ctx,
+                        &mut batch,
+                        max_seq_id_batch,
+                        &mut output,
+                        true,
+                        "rank".to_string(),
+                    )
+                        .unwrap();
+                    max_seq_id_batch = 0;
+                    batch.clear();
+                }
+
+                batch.add_sequence(tokens, max_seq_id_batch, false)
+                    .expect("Failed to add sequence to batch");;
+                max_seq_id_batch += 1;
+            }
+
+            batch_decode_rerank(
+                ctx,
+                &mut batch,
+                max_seq_id_batch,
+                &mut output,
+                true,
+                "rank".to_string(),
+            )
+            .unwrap();
+
+            let scores = output
+                .iter()
+                .map(|embeddings| embeddings[0])
+                .collect::<Vec<f32>>();
+            black_box(scores)
+        });
+    });
+}
 pub fn benches() {
     let mut criterion: Criterion<_> = Criterion::default()
         .sample_size(10)
@@ -286,7 +393,7 @@ pub fn benches() {
         .map(|split| split.split_string.clone())
         .collect();
 
-    llama_cpp_embedding(&mut criterion, &mut ctx, &model, &splits_str);
+    //llama_cpp_embedding(&mut criterion, &mut ctx, &model, &splits_str);
 
     let json_file_path = "tests/test_data/bert_paper_query_summaries.json";
     let input_str = fs::read_to_string(json_file_path).unwrap();
@@ -300,6 +407,14 @@ pub fn benches() {
     let mut ctx = init_reranker_context(&model, &backend, max_tokens).unwrap();
 
     reranker_benchmark(
+        &mut criterion,
+        &mut ctx,
+        &model,
+        &query_summaries,
+        max_tokens,
+    );
+
+    reranker_benchmark_improved(
         &mut criterion,
         &mut ctx,
         &model,

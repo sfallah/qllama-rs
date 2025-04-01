@@ -16,6 +16,7 @@ rayon = "1.5.1"
 criterion = "0.5.1"
 candle-core = "0.8.4"
 safetensors = "0.5.3"
+indexmap = "2.8.0"
 
 [features]
 default = ["metal"]
