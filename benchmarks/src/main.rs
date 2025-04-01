@@ -35,8 +35,8 @@ fn main() -> Result<()> {
         LlamaModelParams::default()
     };
 
-    //let model_path = PathBuf::from("models/bge-reranker-v2-m3-q4_k_m.gguf");
-    let model_path = PathBuf::from("models/bge-reranker-v2-m3-f16.gguf");
+    let model_path = PathBuf::from("models/bge-reranker-v2-m3-q4_k_m.gguf");
+    //let model_path = PathBuf::from("models/bge-reranker-v2-m3-f16.gguf");
 
     let model = LlamaModel::load_from_file(&backend, model_path, &model_params)
         .with_context(|| "unable to load model")?;

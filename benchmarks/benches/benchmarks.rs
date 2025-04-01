@@ -293,7 +293,8 @@ pub fn benches() {
     let query_summaries = serde_json::from_str::<QuerySummaries>(&input_str).unwrap();
 
     //let model_path = "models/bge-reranker-v2-m3-f16.gguf";
-    let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf";
+    //let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf";
+    let model_path = "models/jina-reranker-v1-tiny-en-q4_k_m.gguf";
     let model = init_model(model_path, &backend).unwrap();
     let max_tokens = 2048;
     let mut ctx = init_reranker_context(&model, &backend, max_tokens).unwrap();

@@ -5,7 +5,6 @@ mod tetes {
     use fast_text_splitter::hf_tokenizer::HFTokenizer;
     use fast_text_splitter::splitter::split_node::utils::SplitResultLite;
     use llama_cpp::context::LlamaContext;
-    use llama_cpp::llama_backend::LlamaBackend;
     use llama_cpp::model::{AddBos, LlamaModel};
     use llama_cpp::token::LlamaToken;
     use llama_cpp_rs_bench::split_data::{QuerySummaries, SplitData, SummaryData};
@@ -50,6 +49,7 @@ mod tetes {
         text_file_path: &str,
         out_dir: &str,
         hf_model: Option<String>,
+        model_instruct: Option<&str>,
         n_ctx: Option<u32>,
         n_batch: Option<u32>,
         n_ubatch: Option<u32>,
@@ -89,6 +89,7 @@ mod tetes {
                     &mut splits_data,
                     split_id,
                     mx_tokens_split,
+                    model_instruct,
                 );
             });
 
@@ -147,6 +148,7 @@ mod tetes {
                     &mut splits_data,
                     split_id,
                     mx_tokens_split,
+                    None
                 );
             });
 
@@ -180,6 +182,7 @@ mod tetes {
                     &mut splits_data,
                     split_id,
                     mx_tokens_split,
+                    None
                 );
             });
 
@@ -200,10 +203,16 @@ mod tetes {
         mut splits_data: &mut Vec<SplitData>,
         split_id: usize,
         mx_tokens_split: &SplitResultLite,
+        model_instruct: Option<&str>,
     ) {
         let split_id_str = format!("{:03}", split_id);
 
-        let llama_tokens = llama_cpp_tokenize(&ctx.model, mx_tokens_split.split_string.as_str())
+        let input = model_instruct.map_or_else(
+            || mx_tokens_split.split_string.clone(),
+            |instruct| format!("{}{}", instruct, mx_tokens_split.split_string),
+        );
+
+        let llama_tokens = llama_cpp_tokenize(&ctx.model, input.as_str())
             .expect("unable to tokenize");
         let mut split_embedding_vec = Vec::new();
         get_embeddings(&llama_tokens, &mut split_embedding_vec, &mut ctx, n_ctx)
@@ -264,8 +273,9 @@ mod tetes {
 
     #[test]
     fn test_text_file_embeddings() -> Result<()> {
-        let out_dir = "output/superlinear_embeddings/snowflake-arctic-embed-m-v1.5";
-        //let out_dir = "output/superlinear_embeddings/gte-Qwen2-1.5B-instruct";
+        //let out_dir = "output/superlinear_embeddings/snowflake-arctic-embed-m-v1.5";
+        //let out_dir = "output/superlinear_embeddings/bge-reranker-v2";
+        let out_dir = "output/superlinear_embeddings/gte-Qwen2-1.5B-instruct";
         //let out_dir = "output/superlinear_embeddings/multilingual-e5-large-instruct";
         //let out_dir = "output/superlinear_embeddings/bge-large-en";
         //let out_dir = "output/superlinear_embeddings/bge-m3";
@@ -277,27 +287,34 @@ mod tetes {
         //let model_path = "models/bge-large-en-v1.5-q8_0.gguf";
         //let model_path = "models/bge-m3-q4_k_m.gguf";
         //let model_path = "models/gemma-2-9b-it-Q4_K_M.gguf";
-        let model_path = "models/snowflake-arctic-embed-m-v1.5-q4_k_m.gguf";
-        //let model_path = "models/gte-qwen2-1.5b-instruct-q4_k_m.gguf";
+        //let model_path = "models/snowflake-arctic-embed-m-v1.5-q4_k_m.gguf";
+        let model_path = "models/gte-qwen2-1.5b-instruct-q4_k_m.gguf";
+        //let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf";
+
 
         //let text_file_path = "tests/test_data/United_States.txt";
         let text_file_path = "tests/test_data/superlinear.txt";
 
         //let hf_model = Some("sentence-transformers/all-MiniLM-L6-v2".to_string());
-        let hf_model = Some("Snowflake/snowflake-arctic-embed-m-v1.5".to_string());
-        //let hf_model = Some("Alibaba-NLP/gte-Qwen2-1.5B-instruct".to_string());
+        //let hf_model = Some("Snowflake/snowflake-arctic-embed-m-v1.5".to_string());
+        let hf_model = Some("Alibaba-NLP/gte-Qwen2-1.5B-instruct".to_string());
         //let hf_model = Some("intfloat/multilingual-e5-large-instruct".to_string());
         //let hf_model = Some("BAAI/bge-large-en-v1.5".to_string());
         //let hf_model = Some("BAAI/bge-m3".to_string());
         //let hf_model = Some("google/gemma-2-9b-it".to_string());
+        //let hf_model = Some("BAAI/bge-reranker-v2-m3".to_string());
+        let max_tokens = 4096;
+        //let model_instruct = Some("Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:");
+        let model_instruct = None;
         text_file_embeddings(
             &model_path,
             text_file_path,
             out_dir,
             hf_model,
-            Some(512),
-            Some(512),
-            Some(512),
+            model_instruct,
+            Some(max_tokens),
+            Some(max_tokens),
+            Some(max_tokens),
         )
     }
 
@@ -313,13 +330,13 @@ mod tetes {
     #[test]
     fn test() -> Result<()> {
         //let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf".to_string();
-        let model_path = "models/snowflake-arctic-embed-m-v1.5-q4_k_m.gguf".to_string();
+        //let model_path = "models/snowflake-arctic-embed-m-v1.5-q4_k_m.gguf".to_string();
+        let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf".to_string();
+
 
         //let model_path = "models/all-MiniLM-L6-v2-ggml-model-f16.gguf".to_string();
         //let model_path = "models/multilingual-e5-large-instruct-q4_k_m.gguf".to_string();
 
-        //let model_id = "sentence-transformers/all-MiniLM-L6-v2".to_string();
-        let model_id = "Snowflake/snowflake-arctic-embed-m-v1.5".to_string();
 
         let backend = init_backend(false)?;
         let model = init_model(&model_path, &backend)?;
