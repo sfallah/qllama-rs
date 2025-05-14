@@ -37,7 +37,8 @@ fn main() -> Result<()> {
 
     //let model_path = PathBuf::from("models/bge-reranker-v2-m3-q4_k_m.gguf");
     //let model_path = PathBuf::from("models/jina-reranker-v1-tiny-en-q4_k_m.gguf");
-    let model_path = PathBuf::from("models/jina-reranker-v1-tiny-en-FP16.gguf");
+    //let model_path = PathBuf::from("models/jina-reranker-v1-tiny-en-FP16.gguf");
+    let model_path = PathBuf::from("models/bge-reranker-base-q4_k_m.gguf");
     //let model_path = PathBuf::from("models/bge-reranker-v2-m3-f16.gguf");
 
     let model = LlamaModel::load_from_file(&backend, model_path, &model_params)
@@ -109,38 +110,23 @@ fn main() -> Result<()> {
     // } else {
     //     tokens_lines_list.len()
     // };
-    let mut max_seq_id_batch = 0;
     let mut output = Vec::with_capacity(tokens_lines_list.len());
 
     let t_main_start = ggml_time_us();
 
     for tokens in &tokens_lines_list {
         // Flush the batch if the next prompt would exceed our batch size
-        if (batch.n_tokens() as usize + tokens.len()) > max_tokens as usize {
-            batch_decode(
-                &mut ctx,
-                &mut batch,
-                max_seq_id_batch,
-                &mut output,
-                true,
-                "rank".to_string(),
-            )?;
-            max_seq_id_batch = 0;
-            batch.clear();
-        }
-
-        batch.add_sequence(tokens, max_seq_id_batch, false)?;
-        max_seq_id_batch += 1;
+        batch.add_sequence(tokens, 0, false)?;
+        batch_decode(
+            &mut ctx,
+            &mut batch,
+            1,
+            &mut output,
+            true,
+            "rank".to_string(),
+        )?;
+        batch.clear();
     }
-    // Handle final batch
-    batch_decode(
-        &mut ctx,
-        &mut batch,
-        max_seq_id_batch,
-        &mut output,
-        true,
-        "rank".to_string(),
-    )?;
 
     let t_main_end = ggml_time_us();
 

@@ -83,7 +83,6 @@ pub fn batch_decode_rerank(
     normalise: bool,
     pooling: String,
 ) -> Result<()> {
-
     // Clear previous kv_cache values
     ctx.clear_kv_cache();
 
@@ -357,7 +356,7 @@ pub fn init_context<'a>(
 pub fn init_reranker_context<'a>(
     model: &'a LlamaModel,
     backend: &'a LlamaBackend,
-    max_tokens: u32
+    max_tokens: u32,
 ) -> Result<LlamaContext<'a>> {
     let pooling_type = LlamaPoolingType::Rank;
     let parallelism = std::thread::available_parallelism()?.get() as u32;
@@ -380,9 +379,9 @@ pub fn init_splitter(
     splits: bool,
 ) -> Result<SplitterLiteConfig<HFTokenizer>> {
     let patterns = patterns.unwrap_or(vec![
+        vec!["<SENT>".to_string()],
         vec!["\n\n".to_string()],
         vec!["\n".to_string()],
-        vec![".".to_string(), "!".to_string(), "?".to_string()],
     ]);
     let max_tokens = max_tokens.unwrap_or(512);
     let merge_level = if splits { None } else { Some(patterns.len()) };
