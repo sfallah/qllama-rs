@@ -11,7 +11,7 @@ impl LlamaTimings {
     /// Create a new `LlamaTimings`.
     /// ```
     /// # use llama_cpp::timing::LlamaTimings;
-    /// let timings = LlamaTimings::new(1.0, 2.0, 3.0, 4.0, 5, 6);
+    /// let timings = LlamaTimings::new(1.0, 2.0, 3.0, 4.0, 5, 6, 1);
     /// let timings_str = "load time = 2.00 ms
     /// prompt eval time = 3.00 ms / 5 tokens (0.60 ms per token, 1666.67 tokens per second)
     /// eval time = 4.00 ms / 6 runs (0.67 ms per token, 1500.00 tokens per second)\n";
@@ -26,6 +26,7 @@ impl LlamaTimings {
         t_eval_ms: f64,
         n_p_eval: i32,
         n_eval: i32,
+        n_reused: i32,
     ) -> Self {
         Self {
             timings: llama_cpp_sys::llama_perf_context_data {
@@ -35,6 +36,7 @@ impl LlamaTimings {
                 t_eval_ms,
                 n_p_eval,
                 n_eval,
+                n_reused,
             },
         }
     }

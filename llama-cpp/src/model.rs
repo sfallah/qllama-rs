@@ -13,8 +13,8 @@ use crate::model::params::LlamaModelParams;
 use crate::token::LlamaToken;
 use crate::token_type::{LlamaTokenAttr, LlamaTokenAttrs};
 use crate::{
-    ApplyChatTemplateError, ChatTemplateError, InternalChatTemplateError, LlamaContextLoadError,
-    LlamaLoraAdapterInitError, LlamaModelLoadError, NewLlamaChatMessageError, StringToTokenError,
+    ApplyChatTemplateError, ChatTemplateError, LlamaContextLoadError, LlamaLoraAdapterInitError,
+    LlamaModelLoadError, MetaValError, NewLlamaChatMessageError, StringToTokenError,
     TokenToStringError,
 };
 
@@ -36,7 +36,7 @@ pub struct LlamaLoraAdapter {
     pub(crate) lora_adapter: NonNull<llama_cpp_sys::llama_adapter_lora>,
 }
 
-/// A performance-friendly wrapper around [LlamaModel::get_chat_template] which is then
+/// A performance-friendly wrapper around [LlamaModel::chat_template] which is then
 /// fed into [LlamaModel::apply_chat_template] to convert a list of messages into an LLM
 /// prompt. Internally the template is stored as a CString to avoid round-trip conversions
 /// within the FFI.
@@ -93,7 +93,6 @@ impl LlamaChatMessage {
 }
 
 /// The Rope type that's used within the model.
-#[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RopeType {
     Norm,
@@ -162,13 +161,6 @@ impl LlamaModel {
     #[must_use]
     pub fn token_eos(&self) -> LlamaToken {
         let token = unsafe { llama_cpp_sys::llama_token_eos(self.vocab_ptr()) };
-        LlamaToken(token)
-    }
-
-    /// Get the separator token.
-    #[must_use]
-    pub fn token_sep(&self) -> LlamaToken {
-        let token = unsafe { llama_cpp_sys::llama_vocab_sep(self.vocab_ptr()) };
         LlamaToken(token)
     }
 
@@ -496,7 +488,61 @@ impl LlamaModel {
     pub fn n_head_kv(&self) -> u32 {
         // It's never possible for this to panic because while the API interface is defined as an int32_t,
         // the field it's accessing is a uint32_t.
-        u32::try_from(unsafe { llama_cpp_sys::llama_model_n_head_kv(self.model.as_ptr()) }).unwrap()
+        u32::try_from(unsafe { llama_cpp_sys::llama_model_n_head_kv(self.model.as_ptr()) })
+            .unwrap()
+    }
+
+    /// Get metadata value as a string by key name
+    pub fn meta_val_str(&self, key: &str) -> Result<String, MetaValError> {
+        let key_cstring = CString::new(key)?;
+        let key_ptr = key_cstring.as_ptr();
+
+        extract_meta_string(
+            |buf_ptr, buf_len| unsafe {
+                llama_cpp_sys::llama_model_meta_val_str(
+                    self.model.as_ptr(),
+                    key_ptr,
+                    buf_ptr,
+                    buf_len,
+                )
+            },
+            256,
+        )
+    }
+
+    /// Get the number of metadata key/value pairs
+    pub fn meta_count(&self) -> i32 {
+        unsafe { llama_cpp_sys::llama_model_meta_count(self.model.as_ptr()) }
+    }
+
+    /// Get metadata key name by index
+    pub fn meta_key_by_index(&self, index: i32) -> Result<String, MetaValError> {
+        extract_meta_string(
+            |buf_ptr, buf_len| unsafe {
+                llama_cpp_sys::llama_model_meta_key_by_index(
+                    self.model.as_ptr(),
+                    index,
+                    buf_ptr,
+                    buf_len,
+                )
+            },
+            256,
+        )
+    }
+
+    /// Get metadata value as a string by index
+    pub fn meta_val_str_by_index(&self, index: i32) -> Result<String, MetaValError> {
+        extract_meta_string(
+            |buf_ptr, buf_len| unsafe {
+                llama_cpp_sys::llama_model_meta_val_str_by_index(
+                    self.model.as_ptr(),
+                    index,
+                    buf_ptr,
+                    buf_len,
+                )
+            },
+            256,
+        )
     }
 
     /// Returns the rope type of the model.
@@ -514,83 +560,38 @@ impl LlamaModel {
         }
     }
 
-    fn get_chat_template_impl(
-        &self,
-        capacity: usize,
-    ) -> Result<LlamaChatTemplate, InternalChatTemplateError> {
-        // longest known template is about 1200 bytes from llama.cpp
-        // TODO: Once MaybeUninit support is better, this can be converted to use that instead of dummy initializing such a large array.
-        let mut chat_temp = vec![b'*' as u8; capacity];
-        let chat_name =
-            CStr::from_bytes_with_nul(b"tokenizer.chat_template\0").expect("should have null byte");
-
-        let ret = unsafe {
-            llama_cpp_sys::llama_model_meta_val_str(
-                self.model.as_ptr(),
-                chat_name.as_ptr(),
-                chat_temp.as_mut_ptr() as *mut c_char,
-                chat_temp.len(),
-            )
-        };
-
-        if ret < 0 {
-            return Err(InternalChatTemplateError::Permanent(
-                ChatTemplateError::MissingTemplate(ret),
-            ));
-        }
-
-        let returned_len = ret as usize;
-
-        if ret as usize >= capacity {
-            // >= is important because if the returned length is equal to capacity, it means we're missing a trailing null
-            // since the returned length doesn't count the trailing null.
-            return Err(InternalChatTemplateError::RetryWithLargerBuffer(
-                returned_len,
-            ));
-        }
-
-        assert_eq!(
-            chat_temp.get(returned_len),
-            Some(&0),
-            "should end with null byte"
-        );
-
-        chat_temp.resize(returned_len + 1, 0);
-
-        Ok(LlamaChatTemplate(unsafe {
-            CString::from_vec_with_nul_unchecked(chat_temp)
-        }))
-    }
-
-    /// Get chat template from model. If this fails, you may either want to fail to chat or pick the
-    /// specific shortcode that llama.cpp supports templates it has baked-in directly into its codebase
-    /// as fallbacks when the model doesn't contain. NOTE: If you don't specify a chat template, then
-    /// it uses chatml by default which is unlikely to actually be the correct template for your model
-    /// and you'll get weird results back.
+    /// Get chat template from model by name. If the name parameter is None, the default chat template will be returned.
     ///
     /// You supply this into [Self::apply_chat_template] to get back a string with the appropriate template
     /// substitution applied to convert a list of messages into a prompt the LLM can use to complete
     /// the chat.
     ///
+    /// You could also use an external jinja parser, like [minijinja](https://github.com/mitsuhiko/minijinja),
+    /// to parse jinja templates not supported by the llama.cpp template engine.
+    ///
     /// # Errors
     ///
-    /// * If the model has no chat template
+    /// * If the model has no chat template by that name
     /// * If the chat template is not a valid [`CString`].
-    #[allow(clippy::missing_panics_doc)] // we statically know this will not panic as
-    pub fn get_chat_template(&self) -> Result<LlamaChatTemplate, ChatTemplateError> {
-        // Typical chat templates are quite small. Let's start with a small allocation likely to succeed.
-        // Ideally the performance of this would be negligible but uninitialized arrays in Rust are currently
-        // still not well supported so we end up initializing the chat template buffer twice. One idea might
-        // be to use a very small value here that will likely fail (like 0 or 1) and then use that to initialize.
-        // Not sure which approach is the most optimal but in practice this should work well.
-        match self.get_chat_template_impl(200) {
-            Ok(t) => Ok(t),
-            Err(InternalChatTemplateError::Permanent(e)) => Err(e),
-            Err(InternalChatTemplateError::RetryWithLargerBuffer(actual_len)) => match self.get_chat_template_impl(actual_len + 1) {
-                Ok(t) => Ok(t),
-                Err(InternalChatTemplateError::Permanent(e)) => Err(e),
-                Err(InternalChatTemplateError::RetryWithLargerBuffer(unexpected_len)) => panic!("Was told that the template length was {actual_len} but now it's {unexpected_len}"),
-            }
+    pub fn chat_template(
+        &self,
+        name: Option<&str>,
+    ) -> Result<LlamaChatTemplate, ChatTemplateError> {
+        let name_cstr = name.map(CString::new);
+        let name_ptr = match name_cstr {
+            Some(Ok(name)) => name.as_ptr(),
+            _ => std::ptr::null(),
+        };
+        let result =
+            unsafe { llama_cpp_sys::llama_model_chat_template(self.model.as_ptr(), name_ptr) };
+
+        // Convert result to Rust String if not null
+        if result.is_null() {
+            Err(ChatTemplateError::MissingTemplate)
+        } else {
+            let chat_template_cstr = unsafe { CStr::from_ptr(result) };
+            let chat_template = CString::new(chat_template_cstr.to_bytes())?;
+            Ok(LlamaChatTemplate(chat_template))
         }
     }
 
@@ -702,7 +703,7 @@ impl LlamaModel {
         });
         let mut buff: Vec<u8> = vec![0; message_length * 2];
 
-        // Build our llama_cpp_sys_2 chat messages
+        // Build our llama_cpp_sys chat messages
         let chat: Vec<llama_cpp_sys::llama_chat_message> = chat
             .iter()
             .map(|c| llama_cpp_sys::llama_chat_message {
@@ -719,7 +720,7 @@ impl LlamaModel {
                 chat.as_ptr(),
                 chat.len(),
                 add_ass,
-                buff.as_mut_ptr().cast::<i8>(),
+                buff.as_mut_ptr().cast::<c_char>(),
                 buff.len().try_into().expect("Buffer size exceeds i32::MAX"),
             )
         };
@@ -733,7 +734,7 @@ impl LlamaModel {
                     chat.as_ptr(),
                     chat.len(),
                     add_ass,
-                    buff.as_mut_ptr().cast::<i8>(),
+                    buff.as_mut_ptr().cast::<c_char>(),
                     buff.len().try_into().expect("Buffer size exceeds i32::MAX"),
                 )
             };
@@ -742,6 +743,42 @@ impl LlamaModel {
         buff.truncate(res.try_into().expect("res is negative"));
         Ok(String::from_utf8(buff)?)
     }
+}
+
+/// Generic helper function for extracting string values from the C API
+/// This are specifically useful for the the metadata functions, where we pass in a buffer
+/// to be populated by a string, not yet knowing if the buffer is large enough.
+/// If the buffer was not large enough, we get the correct length back, which can be used to
+/// construct a buffer of appropriate size.
+fn extract_meta_string<F>(c_function: F, capacity: usize) -> Result<String, MetaValError>
+where
+    F: Fn(*mut c_char, usize) -> i32,
+{
+    let mut buffer = vec![0u8; capacity];
+
+    // call the foreign function
+    let result = c_function(buffer.as_mut_ptr() as *mut c_char, buffer.len());
+    if result < 0 {
+        return Err(MetaValError::NegativeReturn(result));
+    }
+
+    // check if the response fit in our buffer
+    let returned_len = result as usize;
+    if returned_len >= capacity {
+        // buffer wasn't large enough, try again with the correct capacity.
+        return extract_meta_string(c_function, returned_len + 1);
+    }
+
+    // verify null termination
+    debug_assert_eq!(
+        buffer.get(returned_len),
+        Some(&0),
+        "should end with null byte"
+    );
+
+    // resize, convert, and return
+    buffer.truncate(returned_len);
+    Ok(String::from_utf8(buffer)?)
 }
 
 impl Drop for LlamaModel {

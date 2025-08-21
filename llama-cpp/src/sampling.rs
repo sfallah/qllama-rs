@@ -63,7 +63,7 @@ impl LlamaSampler {
     }
 
     /// Resets the internal state of the sampler.
-    /// 
+    ///
     /// This can be useful when you want to start fresh with a sampler without creating a new instance.
     pub fn reset(&mut self) {
         unsafe {
@@ -117,6 +117,8 @@ impl LlamaSampler {
     ///    data_array::LlamaTokenDataArray
     /// };
     /// use llama_cpp::sampling::LlamaSampler;
+    /// use llama_cpp::llama_backend::LlamaBackend;
+    /// let backend = LlamaBackend::init().unwrap();
     ///
     /// let mut data_array = LlamaTokenDataArray::new(vec![
     ///     LlamaTokenData::new(LlamaToken(0), 0., 0.),
@@ -211,11 +213,11 @@ impl LlamaSampler {
         Self { sampler }
     }
 
-    /// Top-nσ sampling as described in academic paper "Top-nσ: Not All Logits Are You Need" 
+    /// Top-nσ sampling as described in academic paper "Top-nσ: Not All Logits Are You Need"
     /// <https://arxiv.org/pdf/2411.07641>
     ///
     /// This method filters logits by selecting only those within *n* standard deviations of the mean.
-    /// 
+    ///
     /// # Parameters
     /// - `n`: Number of standard deviations from the mean to include in sampling
     ///
@@ -276,7 +278,7 @@ impl LlamaSampler {
     /// # Panics
     /// If either of ``grammar_str`` or ``grammar_root`` contain null bytes.
     #[must_use]
-    pub fn grammar(model: &LlamaModel, grammar_str: &str, grammar_root: &str) -> Self {
+    pub fn grammar(model: &LlamaModel, grammar_str: &str, grammar_root: &str) -> Option<Self> {
         let grammar_str = CString::new(grammar_str).unwrap();
         let grammar_root = CString::new(grammar_root).unwrap();
 
@@ -287,7 +289,12 @@ impl LlamaSampler {
                 grammar_root.as_ptr(),
             )
         };
-        Self { sampler }
+
+        if sampler.is_null() {
+            None
+        } else {
+            Some(Self { sampler })
+        }
     }
 
     /// Lazy grammar sampler, introduced in <https://github.com/ggerganov/llama.cpp/pull/9639>
@@ -304,20 +311,18 @@ impl LlamaSampler {
         grammar_root: &str,
         trigger_words: impl IntoIterator<Item = impl AsRef<[u8]>>,
         trigger_tokens: &[LlamaToken],
-    ) -> Self {
+    ) -> Option<Self> {
         let grammar_str = CString::new(grammar_str).unwrap();
         let grammar_root = CString::new(grammar_root).unwrap();
-        
+
         let trigger_word_cstrings: Vec<CString> = trigger_words
             .into_iter()
             .map(|word| CString::new(word.as_ref()).unwrap())
             .collect();
-            
-        let mut trigger_word_ptrs: Vec<*const c_char> = trigger_word_cstrings
-            .iter()
-            .map(|cs| cs.as_ptr())
-            .collect();
-    
+
+        let mut trigger_word_ptrs: Vec<*const c_char> =
+            trigger_word_cstrings.iter().map(|cs| cs.as_ptr()).collect();
+
         let sampler = unsafe {
             llama_cpp_sys::llama_sampler_init_grammar_lazy(
                 model.vocab_ptr(),
@@ -329,8 +334,12 @@ impl LlamaSampler {
                 trigger_tokens.len(),
             )
         };
-        
-        Self { sampler }
+
+        if sampler.is_null() {
+            None
+        } else {
+            Some(Self { sampler })
+        }
     }
 
     /// DRY sampler, designed by p-e-w, as described in:
@@ -493,20 +502,14 @@ impl LlamaSampler {
     /// ```
     #[must_use]
     pub fn logit_bias(n_vocab: i32, biases: &[LlamaLogitBias]) -> Self {
-
         let data = biases.as_ptr().cast::<llama_cpp_sys::llama_logit_bias>();
         
         let sampler = unsafe {
-            llama_cpp_sys::llama_sampler_init_logit_bias(
-                n_vocab,
-                biases.len() as i32,
-                data,
-            )
+            llama_cpp_sys::llama_sampler_init_logit_bias(n_vocab, biases.len() as i32, data)
         };
-        
+
         Self { sampler }
     }
-
 }
 
 impl Drop for LlamaSampler {
