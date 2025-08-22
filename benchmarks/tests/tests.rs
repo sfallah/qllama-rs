@@ -278,29 +278,31 @@ mod tetes {
         //let out_dir = "output/superlinear_embeddings/bge-large-en";
         //let out_dir = "output/superlinear_embeddings/bge-m3";
         //let out_dir = "output/United_States/bge-m3";
-        let out_dir = "output/superlinear_embeddings/all-MiniLM-L6-v2_new";
+        let out_dir = "output/bert_paper/bge-m3";
+        //let out_dir = "output/superlinear_embeddings/all-MiniLM-L6-v2_new";
 
-        let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf";
+        //let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf";
         //let model_path ="models/multilingual-e5-large-instruct-q8_0.gguf";
         //let model_path = "models/bge-large-en-v1.5-q8_0.gguf";
-        //let model_path = "models/bge-m3-q4_k_m.gguf";
+        let model_path = "models/bge-m3-q4_k_m.gguf";
         //let model_path = "models/gemma-2-9b-it-Q4_K_M.gguf";
         //let model_path = "models/snowflake-arctic-embed-m-v1.5-q4_k_m.gguf";
         //let model_path = "models/gte-qwen2-1.5b-instruct-q4_k_m.gguf";
         //let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf";
 
         //let text_file_path = "tests/test_data/United_States.txt";
-        let text_file_path = "tests/test_data/superlinear.txt";
+        //let text_file_path = "tests/test_data/superlinear.txt";
+        let text_file_path = "tests/test_data/bert_paper.txt";
 
-        let hf_model = Some("sentence-transformers/all-MiniLM-L6-v2".to_string());
+        //let hf_model = Some("sentence-transformers/all-MiniLM-L6-v2".to_string());
         //let hf_model = Some("Snowflake/snowflake-arctic-embed-m-v1.5".to_string());
         //let hf_model = Some("Alibaba-NLP/gte-Qwen2-1.5B-instruct".to_string());
         //let hf_model = Some("intfloat/multilingual-e5-large-instruct".to_string());
         //let hf_model = Some("BAAI/bge-large-en-v1.5".to_string());
-        //let hf_model = Some("BAAI/bge-m3".to_string());
+        let hf_model = Some("BAAI/bge-m3".to_string());
         //let hf_model = Some("google/gemma-2-9b-it".to_string());
         //let hf_model = Some("BAAI/bge-reranker-v2-m3".to_string());
-        let max_tokens = Some(400);
+        let max_tokens = Some(512);
         let n_batch = Some(512);
         //let model_instruct = Some("Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:");
         let model_instruct = None;
