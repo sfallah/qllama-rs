@@ -115,10 +115,17 @@ fn main() -> Result<()> {
 
     // Split the prompt to display the batching functionality
     let prompt_lines = prompt.lines();
+    let prompt_lines = [
+        //"The new movie is awesome",
+        //"The cat sits outside",
+        //"A man is playing guitar",
+        "I love pasta [SEP]",
+        "I love pasta '[CLS]",
+    ];
 
     // tokenize the prompt
-    let tokens_lines_list = prompt_lines
-        .map(|line| model.str_to_token(line, AddBos::Always))
+    let tokens_lines_list = prompt_lines.iter()
+        .map(|line| model.str_to_token(line, AddBos::Never))
         .collect::<Result<Vec<_>, _>>()
         .with_context(|| format!("failed to tokenize {prompt}"))?;
 
@@ -150,22 +157,40 @@ fn main() -> Result<()> {
     }
 
     std::io::stderr().flush()?;
+
+    // create a llama_batch with the size of the context
+    // we use this object to submit token data for decoding
+    let mut batch = LlamaBatch::new(n_ctx,  model.n_embd(), prompt_lines.len() as i32);
+
+    let mut max_seq_id_batch = 0;
     let mut output = Vec::with_capacity(tokens_lines_list.len());
 
     let t_main_start = ggml_time_us();
 
     for tokens in &tokens_lines_list {
-        // Create a fresh batch for each sequence
-        let mut batch = LlamaBatch::new(n_ctx, 1);
-        batch.add_sequence(tokens, 0, false)?;
-        batch_decode(
-            &mut ctx,
-            &mut batch,
-            1, // Only one sequence in this batch
-            &mut output,
-            normalise,
-        )?;
+        // Flush the batch if the next prompt would exceed our batch size
+        if (batch.n_tokens() as usize + tokens.len()) > n_ctx {
+            batch_decode(
+                &mut ctx,
+                &mut batch,
+                max_seq_id_batch,
+                &mut output,
+                normalise,
+            )?;
+            max_seq_id_batch = 0;
+        }
+
+        batch.add_sequence(tokens, max_seq_id_batch, false)?;
+        max_seq_id_batch += 1;
     }
+    // Handle final batch
+    batch_decode(
+        &mut ctx,
+        &mut batch,
+        max_seq_id_batch,
+        &mut output,
+        normalise,
+    )?;
 
     let t_main_end = ggml_time_us();
 

@@ -141,7 +141,7 @@ fn main() -> Result<()> {
 
     // create a llama_batch with the size of the context
     // we use this object to submit token data for decoding
-    let mut batch = LlamaBatch::new(2048, 1);
+    let mut batch = LlamaBatch::new(2048, model.n_embd(), 1);
 
     // Todo!  update to get n_embd  to init vector size for better memory management
     // let mut n_embd_count = if pooling == "none" {

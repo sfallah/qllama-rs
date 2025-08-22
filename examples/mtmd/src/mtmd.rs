@@ -112,7 +112,7 @@ impl MtmdCliContext {
             .chat_template(params.chat_template.as_deref())
             .map_err(|e| format!("Failed to get chat template: {e}"))?;
 
-        let batch = LlamaBatch::new(params.n_tokens.get() as usize, 1);
+        let batch = LlamaBatch::new(params.n_tokens.get() as usize, model.n_embd(),1);
 
         Ok(Self {
             mtmd_ctx,

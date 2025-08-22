@@ -232,7 +232,7 @@ either reduce n_len or increase n_ctx"
 
     // create a llama_batch with size 512
     // we use this object to submit token data for decoding
-    let mut batch = LlamaBatch::new(512, 1);
+    let mut batch = LlamaBatch::new(512, model.n_embd(), 1);
 
     let last_index: i32 = (tokens_list.len() - 1) as i32;
     for (i, token) in (0_i32..).zip(tokens_list.into_iter()) {

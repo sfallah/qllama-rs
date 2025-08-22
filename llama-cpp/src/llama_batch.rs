@@ -142,9 +142,9 @@ impl LlamaBatch {
     ///
     /// Panics if `n_tokens` is greater than `i32::MAX`.
     #[must_use]
-    pub fn new(n_tokens: usize, n_seq_max: i32) -> Self {
+    pub fn new(n_tokens: usize, n_embd: i32, n_seq_max: i32) -> Self {
         let n_tokens_i32 = i32::try_from(n_tokens).expect("cannot fit n_tokens into a i32");
-        let batch = unsafe { llama_batch_init(n_tokens_i32, 0, n_seq_max) };
+        let batch = unsafe { llama_batch_init(n_tokens_i32, n_embd, n_seq_max) };
 
         LlamaBatch {
             allocated: n_tokens,
@@ -201,7 +201,7 @@ impl Drop for LlamaBatch {
     /// # use llama_cpp::llama_batch::LlamaBatch;
     /// # use std::error::Error;
     /// # fn main() -> Result<(), Box<dyn Error>> {
-    /// let batch = LlamaBatch::new(512, 1);
+    /// let batch = LlamaBatch::new(512, 384, 1);
     /// // frees the memory associated with the batch. (allocated by llama.cpp)
     /// drop(batch);
     /// # Ok(())
