@@ -5,17 +5,16 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.97"
-fast-text-splitter = { git = "https://gitlab.com/qimiaio/qimia-ai-dev/fast-text-splitter.git", branch = "feat/merge_level_async_sent"}
-llama-cpp = { git = "https://gitlab.com/qimiaio/qimia-ai-dev/llama-cpp-rs.git", branch = "llama.cpp_b5372_2025-05-14"}
+fast-text-splitter = { git = "https://gitlab.com/qimiaio/qimia-ai-dev/fast-text-splitter.git", branch = "feat/merge_level_async_sent" }
+llama-cpp = { git = "https://gitlab.com/qimiaio/qimia-ai-dev/llama-cpp-rs.git", branch = "llama.cpp_b6228_2025-08-21" }
 serde_json = "1.0.128"
 serde = { version = "1.0.208", features = ["derive"] }
 tokenizers = { version = "0.21.1", features = ["http", "onig", "esaxx_fast"] }
 
 [dev-dependencies]
 rayon = "1.5.1"
-criterion = "0.5.1"
-candle-core = "0.8.4"
-safetensors = "0.5.3"
+criterion = "0.7.0"
+candle-core = "0.9.1"
 indexmap = "2.8.0"
 
 [features]
@@ -29,3 +28,6 @@ harness = false
 
 [patch.crates-io]
 cc = { git = "https://github.com/rust-lang/cc-rs.git", rev = "9731605fb9b8a2a8188bf410002dfa0a096d7784" }
+
+[profile.test]
+test-threads = 1

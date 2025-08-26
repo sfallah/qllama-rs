@@ -104,7 +104,7 @@ mod tetes {
         out_dir: &str,
         hf_model: Option<String>,
     ) -> Result<()> {
-        let backend = init_backend(false)?;
+        let backend = init_backend(true)?;
         let model = init_model(&model_path, &backend)?;
         let mut ctx = init_context(&model, &backend, Some(4096), None, None)?;
 
@@ -236,9 +236,8 @@ mod tetes {
         let llama_tokens_list: Vec<Vec<LlamaToken>> = sentence_splits_strs
             .iter()
             .map(|sentence_str| {
-                let llama_tokens =
-                    llama_cpp_tokenize(&ctx.model, sentence_str)
-                        .expect("unable to convert to llama tokens");
+                let llama_tokens = llama_cpp_tokenize(&ctx.model, sentence_str)
+                    .expect("unable to convert to llama tokens");
                 llama_tokens
             })
             .collect();
@@ -329,16 +328,17 @@ mod tetes {
 
     #[test]
     fn test() -> Result<()> {
-        //let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf".to_string();
+        let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf".to_string();
         //let model_path = "models/snowflake-arctic-embed-m-v1.5-q4_k_m.gguf".to_string();
-        let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf".to_string();
+        //let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf".to_string();
 
         //let model_path = "models/all-MiniLM-L6-v2-ggml-model-f16.gguf".to_string();
         //let model_path = "models/multilingual-e5-large-instruct-q4_k_m.gguf".to_string();
 
-        let backend = init_backend(false)?;
+        let backend = init_backend(true)?;
         let model = init_model(&model_path, &backend)?;
-        let mut ctx = init_context(&model, &backend, Some(3072), Some(3072), Some(3072))?;
+        //let mut ctx = init_context(&model, &backend, Some(3072), Some(3072), Some(3072))?;
+        let mut ctx = init_context(&model, &backend, None, None, None)?;
 
         let sentences1 = [
             "The new movie is awesome",
@@ -351,8 +351,6 @@ mod tetes {
 
         let cache_used = ctx.get_kv_cache_used_cells();
         println!("cache_used: {}", cache_used);
-        let kv_cache_size = ctx.get_kv_cache_token_count();
-        println!("kv_cache_size: {}", kv_cache_size);
 
         let embeddings1_ts = Tensor::new(embeddings1, &Device::Cpu)?;
 
@@ -446,7 +444,7 @@ mod tetes {
 
         // create a llama_batch with the size of the context
         // we use this object to submit token data for decoding
-        let mut batch = LlamaBatch::new(max_tokens as usize, 1);
+        let mut batch = LlamaBatch::new(max_tokens as usize, 0, 1);
 
         let mut max_seq_id_batch = 0;
         let mut output = Vec::with_capacity(tokens_lines_list.len());

@@ -136,7 +136,7 @@ pub fn get_embeddings(
     mut ctx: &mut LlamaContext,
     n_ctx: usize,
 ) -> Result<()> {
-    let mut batch = LlamaBatch::new(n_ctx, 1);
+    let mut batch = LlamaBatch::new(n_ctx, 0, 1);
     batch
         .add_sequence(&llama_tokens, 0, false)
         .with_context(|| "unable to add sequence to batch")?;
@@ -151,7 +151,7 @@ pub fn process_batch(
 ) -> Result<Vec<Vec<f32>>, anyhow::Error> {
     let n_batch: usize = ctx.n_ctx() as usize;
 
-    let mut batch = LlamaBatch::new(n_batch, splits_tokens.len() as i32);
+    let mut batch = LlamaBatch::new(n_batch, 0, 1);
     let mut max_seq_id_batch = 0;
     let mut output = Vec::with_capacity(splits_tokens.len());
 
@@ -164,11 +164,6 @@ pub fn process_batch(
         max_seq_id_batch += 1;
     }
 
-    println!(
-        "Batch decode, n_tokens: {}, no_seq: {}",
-        batch.n_tokens(),
-        max_seq_id_batch
-    );
     batch_decode(ctx, &mut batch, max_seq_id_batch, &mut output, true)?;
 
     Ok(output)
@@ -207,7 +202,7 @@ pub fn process_splits_batch(
 ) -> Result<Vec<Vec<f32>>, anyhow::Error> {
     let n_batch: usize = ctx.n_ctx() as usize;
 
-    let mut batch = LlamaBatch::new(n_batch, splits.len() as i32);
+    let mut batch = LlamaBatch::new(n_batch, 0, 1);
     let mut max_seq_id_batch = 0;
     let mut output = Vec::with_capacity(splits.len());
 
@@ -239,7 +234,7 @@ pub fn process_single(
 ) -> Result<Vec<f32>, anyhow::Error> {
     let n_batch: usize = ctx.n_ctx() as usize;
 
-    let mut batch = LlamaBatch::new(n_batch, 1);
+    let mut batch = LlamaBatch::new(n_batch, 1, 0);
     batch.add_sequence(tokens, 0, false)?;
     let mut output = Vec::with_capacity(1);
     single_decode(ctx, &mut batch, &mut output, true)?;
@@ -331,7 +326,8 @@ pub fn init_context<'a>(
     let mut ctx_params = LlamaContextParams::default()
         //.with_n_threads(1)
         .with_n_threads_batch(parallelism.try_into()?)
-        .with_embeddings(true);
+        .with_embeddings(true)
+        .with_kv_unified(true);
 
     if let Some(max_tokens) = max_tokens {
         ctx_params = ctx_params
@@ -361,13 +357,14 @@ pub fn init_reranker_context<'a>(
     let pooling_type = LlamaPoolingType::Rank;
     let parallelism = std::thread::available_parallelism()?.get() as u32;
     println!("parallelism: {}", parallelism);
-    let mut ctx_params = LlamaContextParams::default()
+    let ctx_params = LlamaContextParams::default()
         .with_n_threads_batch(parallelism.try_into()?)
         .with_embeddings(true)
         .with_pooling_type(pooling_type)
         .with_n_ctx(NonZeroU32::new(max_tokens))
         .with_n_ubatch(max_tokens)
-        .with_n_batch(max_tokens);
+        .with_n_batch(max_tokens)
+        .with_kv_unified(true);
     let ctx = model.new_context(&backend, ctx_params)?;
 
     Ok(ctx)

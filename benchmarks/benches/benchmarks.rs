@@ -1,5 +1,5 @@
 use anyhow::Context;
-use criterion::{black_box, criterion_main, Criterion};
+use criterion::{criterion_main, Criterion};
 use fast_text_splitter::hf_tokenizer::init_tokenizer;
 use indexmap::IndexMap;
 use llama_cpp::context::params::LlamaContextParams;
@@ -17,6 +17,7 @@ use llama_cpp_rs_bench::{
 };
 use rayon::prelude::*;
 use std::fs;
+use std::hint::black_box;
 use std::num::NonZeroU32;
 use std::ops::Deref;
 use std::path::PathBuf;
@@ -141,7 +142,7 @@ pub fn reranker_benchmark(
                 .unwrap();
 
             let n_ctx = ctx.n_ctx() as usize;
-            let mut batch = LlamaBatch::new(max_tokens as usize, 1);
+            let mut batch = LlamaBatch::new(max_tokens as usize, 0, 1);
 
             let mut max_seq_id_batch = 0;
             let mut output = Vec::with_capacity(tokens_lines_list.len());
@@ -199,7 +200,6 @@ pub fn reranker_benchmark_improved(
     let eos_token = model.token_eos();
     let sep_token = model.token_sep();
 
-
     c.bench_function("reranker_benchmark_improved", |b| {
         b.iter(|| {
             let query_tokens = match model.str_to_token(&query, AddBos::Never) {
@@ -246,7 +246,7 @@ pub fn reranker_benchmark_improved(
             }
 
             let n_ctx = ctx.n_ctx() as usize;
-            let mut batch = LlamaBatch::new(max_tokens as usize, 1);
+            let mut batch = LlamaBatch::new(max_tokens as usize, 0, 1);
 
             let mut max_seq_id_batch = 0;
             let mut output = Vec::with_capacity(sequence_pairs_map.len());
@@ -262,13 +262,14 @@ pub fn reranker_benchmark_improved(
                         true,
                         "rank".to_string(),
                     )
-                        .unwrap();
+                    .unwrap();
                     max_seq_id_batch = 0;
                     batch.clear();
                 }
 
-                batch.add_sequence(tokens, max_seq_id_batch, false)
-                    .expect("Failed to add sequence to batch");;
+                batch
+                    .add_sequence(tokens, max_seq_id_batch, false)
+                    .expect("Failed to add sequence to batch");
                 max_seq_id_batch += 1;
             }
 
@@ -296,8 +297,8 @@ pub fn benches() {
         .measurement_time(std::time::Duration::from_secs(20))
         .configure_from_args();
 
-    //let text_file = "tests/test_data/superlinear.txt";
-    let text_file = "tests/test_data/bert_paper.txt";
+    let text_file = "tests/test_data/superlinear.txt";
+    //let text_file = "tests/test_data/bert_paper.txt";
     let data_str = fs::read_to_string(text_file).unwrap();
     let data = data_str.as_bytes();
     let mut backend = LlamaBackend::init().unwrap();
@@ -310,13 +311,15 @@ pub fn benches() {
     };
 
     //let model_path = "models/gte-qwen2-1.5b-instruct-q4_k_m.gguf".to_string();
-    let model_path = "models/snowflake-arctic-embed-m-v1.5-q4_k_m.gguf".to_string();
+    //let model_path = "models/snowflake-arctic-embed-m-v1.5-q4_k_m.gguf".to_string();
     //let model_path = "models/bge-large-en-v1.5-q4_k_m.gguf".to_string();
+    let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf".to_string();
     let model_path = PathBuf::from(model_path);
 
     //let model_id = "Alibaba-NLP/gte-Qwen2-1.5B-instruct".to_string();
-    let model_id = "Snowflake/snowflake-arctic-embed-m-v1.5".to_string();
+    //let model_id = "Snowflake/snowflake-arctic-embed-m-v1.5".to_string();
     //let model_id = "BAAI/bge-large-en-v1.5".to_string();
+    let model_id = "sentence-transformers/all-MiniLM-L6-v2".to_string();
 
     let model = LlamaModel::load_from_file(&backend, model_path, &model_params).unwrap();
 
@@ -329,7 +332,8 @@ pub fn benches() {
         .with_n_batch(max_ctx)
         .with_n_ubatch(max_ctx)
         .with_n_ctx(NonZeroU32::new(max_ctx))
-        .with_pooling_type(llama_cpp::context::params::LlamaPoolingType::Mean);
+        .with_pooling_type(llama_cpp::context::params::LlamaPoolingType::Mean)
+        .with_kv_unified(true);
 
     let mut ctx = model.new_context(&backend, ctx_params).unwrap();
 
@@ -393,15 +397,15 @@ pub fn benches() {
         .map(|split| split.split_string.clone())
         .collect();
 
-    //llama_cpp_embedding(&mut criterion, &mut ctx, &model, &splits_str);
+    llama_cpp_embedding(&mut criterion, &mut ctx, &model, &splits_str);
 
     let json_file_path = "tests/test_data/bert_paper_query_summaries.json";
     let input_str = fs::read_to_string(json_file_path).unwrap();
     let query_summaries = serde_json::from_str::<QuerySummaries>(&input_str).unwrap();
 
     //let model_path = "models/bge-reranker-v2-m3-f16.gguf";
-    //let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf";
-    let model_path = "models/jina-reranker-v1-tiny-en-q4_k_m.gguf";
+    let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf";
+    //let model_path = "models/jina-reranker-v1-tiny-en-q4_k_m.gguf";
     let model = init_model(model_path, &backend).unwrap();
     let max_tokens = 2048;
     let mut ctx = init_reranker_context(&model, &backend, max_tokens).unwrap();
