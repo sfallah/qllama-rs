@@ -166,6 +166,23 @@ impl LlamaContextParams {
         self
     }
 
+    /// Set the `n_batch`
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use std::num::NonZeroU32;
+    /// use llama_cpp::context::params::LlamaContextParams;
+    /// let params = LlamaContextParams::default()
+    ///     .with_n_batch(2048);
+    /// assert_eq!(params.n_batch(), 2048);
+    /// ```
+    #[must_use]
+    pub fn with_kv_unified(mut self, kv_unified: bool) -> Self {
+        self.context_params.kv_unified = kv_unified;
+        self
+    }
+
     /// Get the `n_batch`
     ///
     /// # Examples
@@ -415,6 +432,20 @@ impl LlamaContextParams {
         self.context_params.n_threads_batch = n_threads;
         self
     }
+    // Set the maximum sequence length.
+    /// # Examples
+    /// ```rust
+    /// use llama_cpp::context::params::LlamaContextParams;
+    /// let params = LlamaContextParams::default()
+    ///    .with_n_seq_max(2048);
+    /// assert_eq!(params.n_seq_max(), 2048);
+    /// ```
+    #[must_use]
+    pub fn with_n_seq_max(mut self, n_seq_max: u32) -> Self {
+        self.context_params.n_seq_max = n_seq_max;
+        self
+    }
+
 
     /// Check whether embeddings are enabled
     ///
@@ -543,6 +574,17 @@ impl LlamaContextParams {
     #[must_use]
     pub fn swa_full(&self) -> bool {
         self.context_params.swa_full
+    }
+
+    /// Get the maximum sequence length.
+    ///
+    /// # Examples
+    /// ```rust
+    /// let params = llama_cpp::context::params::LlamaContextParams::default();
+    /// assert_eq!(params.n_seq_max(), 2048);
+    #[must_use]
+    pub fn n_seq_max(&self) -> u32 {
+        self.context_params.n_seq_max
     }
 }
 

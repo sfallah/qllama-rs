@@ -107,6 +107,8 @@ fn main() -> Result<()> {
     // initialize the context
     let ctx_params = LlamaContextParams::default()
         .with_n_threads_batch(std::thread::available_parallelism()?.get().try_into()?)
+        //.with_n_seq_max(4)
+        .with_kv_unified(true)
         .with_embeddings(true);
 
     let mut ctx = model
@@ -114,18 +116,17 @@ fn main() -> Result<()> {
         .with_context(|| "unable to create the llama_context")?;
 
     // Split the prompt to display the batching functionality
-    let prompt_lines = prompt.lines();
+    //let prompt_lines = prompt.lines();
     let prompt_lines = [
         //"The new movie is awesome",
         //"The cat sits outside",
-        //"A man is playing guitar",
-        "I love pasta [SEP]",
-        "I love pasta '[CLS]",
+        "A man is playing guitar",
+        "I love pasta",
     ];
 
     // tokenize the prompt
     let tokens_lines_list = prompt_lines.iter()
-        .map(|line| model.str_to_token(line, AddBos::Never))
+        .map(|line| model.str_to_token(line, AddBos::Always))
         .collect::<Result<Vec<_>, _>>()
         .with_context(|| format!("failed to tokenize {prompt}"))?;
 
@@ -160,7 +161,7 @@ fn main() -> Result<()> {
 
     // create a llama_batch with the size of the context
     // we use this object to submit token data for decoding
-    let mut batch = LlamaBatch::new(n_ctx,  model.n_embd(), prompt_lines.len() as i32);
+    let mut batch = LlamaBatch::new(n_ctx,  0, 1);
 
     let mut max_seq_id_batch = 0;
     let mut output = Vec::with_capacity(tokens_lines_list.len());
@@ -180,7 +181,7 @@ fn main() -> Result<()> {
             max_seq_id_batch = 0;
         }
 
-        batch.add_sequence(tokens, max_seq_id_batch, false)?;
+        batch.add_sequence(tokens, max_seq_id_batch, true)?;
         max_seq_id_batch += 1;
     }
     // Handle final batch
