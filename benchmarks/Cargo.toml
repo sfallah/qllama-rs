@@ -21,6 +21,7 @@ indexmap = "2.8.0"
 default = ["metal"]
 metal = ["llama-cpp/metal"]
 cuda = ["llama-cpp/cuda"]
+cuda-no-vmm = ["llama-cpp/cuda-no-vmm"]
 
 [[bench]]
 name = "benchmarks"
