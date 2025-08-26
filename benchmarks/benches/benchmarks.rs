@@ -304,7 +304,7 @@ pub fn benches() {
     let mut backend = LlamaBackend::init().unwrap();
     backend.void_logs();
 
-    let model_params = if cfg!(any(feature = "cuda", feature = "metal")) {
+    let model_params = if cfg!(any(feature = "cuda", feature= "cuda-no-vmm", feature = "metal")) {
         LlamaModelParams::default().with_n_gpu_layers(1000)
     } else {
         LlamaModelParams::default()
