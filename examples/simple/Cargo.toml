@@ -15,6 +15,7 @@ tracing-subscriber = { workspace = true }
 
 [features]
 cuda = ["llama-cpp/cuda"]
+cuda-no-vmm = ["llama-cpp/cuda-no-vmm"]
 metal =  ["llama-cpp/metal"]
 native = ["llama-cpp/native"]
 vulkan = ["llama-cpp/vulkan"]

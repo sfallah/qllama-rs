@@ -581,7 +581,7 @@ impl LlamaContextParams {
     /// # Examples
     /// ```rust
     /// let params = llama_cpp::context::params::LlamaContextParams::default();
-    /// assert_eq!(params.n_seq_max(), 2048);
+    /// assert_eq!(params.n_seq_max(), 1);
     #[must_use]
     pub fn n_seq_max(&self) -> u32 {
         self.context_params.n_seq_max
