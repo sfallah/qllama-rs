@@ -125,7 +125,8 @@ fn main() -> Result<()> {
     ];
 
     // tokenize the prompt
-    let tokens_lines_list = prompt_lines.iter()
+    let tokens_lines_list = prompt_lines
+        .iter()
         .map(|line| model.str_to_token(line, AddBos::Always))
         .collect::<Result<Vec<_>, _>>()
         .with_context(|| format!("failed to tokenize {prompt}"))?;
@@ -161,7 +162,7 @@ fn main() -> Result<()> {
 
     // create a llama_batch with the size of the context
     // we use this object to submit token data for decoding
-    let mut batch = LlamaBatch::new(n_ctx,  0, 1);
+    let mut batch = LlamaBatch::new(n_ctx, 0, 1);
 
     let mut max_seq_id_batch = 0;
     let mut output = Vec::with_capacity(tokens_lines_list.len());

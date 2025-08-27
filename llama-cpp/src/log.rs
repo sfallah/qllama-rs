@@ -361,11 +361,7 @@ mod tests {
             c"world".as_ptr(),
             log_ptr,
         );
-        logs_to_trace(
-            llama_cpp_sys::GGML_LOG_LEVEL_CONT,
-            c"\n".as_ptr(),
-            log_ptr,
-        );
+        logs_to_trace(llama_cpp_sys::GGML_LOG_LEVEL_CONT, c"\n".as_ptr(), log_ptr);
     }
 
     #[test]

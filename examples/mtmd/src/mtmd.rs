@@ -11,9 +11,7 @@ use llama_cpp::context::params::LlamaContextParams;
 use llama_cpp::context::LlamaContext;
 use llama_cpp::llama_batch::LlamaBatch;
 use llama_cpp::model::params::LlamaModelParams;
-use llama_cpp::mtmd::{
-    MtmdBitmap, MtmdBitmapError, MtmdContext, MtmdContextParams, MtmdInputText,
-};
+use llama_cpp::mtmd::{MtmdBitmap, MtmdBitmapError, MtmdContext, MtmdContextParams, MtmdInputText};
 
 use llama_cpp::llama_backend::LlamaBackend;
 use llama_cpp::model::{LlamaChatMessage, LlamaChatTemplate, LlamaModel, Special};
@@ -112,7 +110,7 @@ impl MtmdCliContext {
             .chat_template(params.chat_template.as_deref())
             .map_err(|e| format!("Failed to get chat template: {e}"))?;
 
-        let batch = LlamaBatch::new(params.n_tokens.get() as usize, model.n_embd(),1);
+        let batch = LlamaBatch::new(params.n_tokens.get() as usize, model.n_embd(), 1);
 
         Ok(Self {
             mtmd_ctx,

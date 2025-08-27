@@ -1,6 +1,7 @@
 //! utilities for working with the kv cache
 
 use crate::context::LlamaContext;
+use llama_cpp_sys::llama_seq_id;
 use std::ffi::c_int;
 use std::num::{NonZeroU8, TryFromIntError};
 
@@ -28,7 +29,15 @@ impl LlamaContext<'_> {
     /// * `dest` - The sequence id to copy the cache to.
     /// * `size` - The size of the cache to copy.
     pub fn copy_cache(&mut self, src: i32, dest: i32, size: i32) {
-        unsafe { llama_cpp_sys::llama_kv_self_seq_cp(self.context.as_ptr(), src, dest, 0, size) }
+        unsafe {
+            llama_cpp_sys::llama_memory_seq_cp(
+                llama_cpp_sys::llama_get_memory(self.context.as_ptr()),
+                src,
+                dest,
+                0,
+                size,
+            )
+        }
     }
 
     /// Copy the cache from one sequence to another.
@@ -58,7 +67,13 @@ impl LlamaContext<'_> {
             .map_or(Ok(-1), i32::try_from)
             .map_err(KvCacheConversionError::P1TooLarge)?;
         unsafe {
-            llama_cpp_sys::llama_kv_self_seq_cp(self.context.as_ptr(), src, dest, p0, p1);
+            llama_cpp_sys::llama_memory_seq_cp(
+                llama_cpp_sys::llama_get_memory(self.context.as_ptr()),
+                src,
+                dest,
+                p0,
+                p1,
+            );
         }
         Ok(())
     }
@@ -92,18 +107,35 @@ impl LlamaContext<'_> {
         let p1 = p1
             .map_or(Ok(-1), i32::try_from)
             .map_err(KvCacheConversionError::P1TooLarge)?;
-        Ok(unsafe { llama_cpp_sys::llama_kv_self_seq_rm(self.context.as_ptr(), src, p0, p1) })
+        Ok(unsafe {
+            llama_cpp_sys::llama_memory_seq_rm(
+                llama_cpp_sys::llama_get_memory(self.context.as_ptr()),
+                src,
+                p0,
+                p1,
+            )
+        })
     }
 
     /// Returns the number of used KV cells (i.e. have at least one sequence assigned to them)
     #[must_use]
-    pub fn get_kv_cache_used_cells(&self) -> i32 {
-        unsafe { llama_cpp_sys::llama_kv_self_used_cells(self.context.as_ptr()) }
+    pub fn get_kv_cache_used_cells(&self, seq_id: llama_seq_id) -> i32 {
+        unsafe {
+            llama_cpp_sys::llama_memory_seq_pos_max(
+                llama_cpp_sys::llama_get_memory(self.context.as_ptr()),
+                seq_id,
+            )
+        }
     }
 
     /// Clear the KV cache
     pub fn clear_kv_cache(&mut self) {
-        unsafe { llama_cpp_sys::llama_kv_self_clear(self.context.as_ptr()) }
+        unsafe {
+            llama_cpp_sys::llama_memory_clear(
+                llama_cpp_sys::llama_get_memory(self.context.as_ptr()),
+                true,
+            ) // true means clear all sequences
+        }
     }
 
     /// Removes all tokens that do not belong to the specified sequence
@@ -112,7 +144,12 @@ impl LlamaContext<'_> {
     ///
     /// * `seq_id` - The sequence id to keep
     pub fn llama_kv_cache_seq_keep(&mut self, seq_id: i32) {
-        unsafe { llama_cpp_sys::llama_kv_self_seq_keep(self.context.as_ptr(), seq_id) }
+        unsafe {
+            llama_cpp_sys::llama_memory_seq_keep(
+                llama_cpp_sys::llama_get_memory(self.context.as_ptr()),
+                seq_id,
+            )
+        }
     }
 
     #[allow(clippy::doc_markdown)]
@@ -147,7 +184,13 @@ impl LlamaContext<'_> {
             .map_or(Ok(-1), i32::try_from)
             .map_err(KvCacheConversionError::P1TooLarge)?;
         unsafe {
-            llama_cpp_sys::llama_kv_self_seq_add(self.context.as_ptr(), seq_id, p0, p1, delta);
+            llama_cpp_sys::llama_memory_seq_add(
+                llama_cpp_sys::llama_get_memory(self.context.as_ptr()),
+                seq_id,
+                p0,
+                p1,
+                delta,
+            );
         }
         Ok(())
     }
@@ -183,7 +226,15 @@ impl LlamaContext<'_> {
             .map_or(Ok(-1), i32::try_from)
             .map_err(KvCacheConversionError::P1TooLarge)?;
         let d = c_int::from(d.get());
-        unsafe { llama_cpp_sys::llama_kv_self_seq_div(self.context.as_ptr(), seq_id, p0, p1, d) }
+        unsafe {
+            llama_cpp_sys::llama_memory_seq_div(
+                llama_cpp_sys::llama_get_memory(self.context.as_ptr()),
+                seq_id,
+                p0,
+                p1,
+                d,
+            )
+        }
         Ok(())
     }
 
@@ -194,19 +245,11 @@ impl LlamaContext<'_> {
     /// * `seq_id` - The sequence id to get the max position for
     #[must_use]
     pub fn kv_cache_seq_pos_max(&self, seq_id: i32) -> i32 {
-        unsafe { llama_cpp_sys::llama_kv_self_seq_pos_max(self.context.as_ptr(), seq_id) }
-    }
-
-    /// Defragment the KV cache
-    /// This will be applied:
-    ///   - lazily on next [`LlamaContext::decode`]
-    ///   - explicitly with [`Self::kv_cache_update`]
-    pub fn kv_cache_defrag(&mut self) {
-        unsafe { llama_cpp_sys::llama_kv_self_defrag(self.context.as_ptr()) }
-    }
-
-    /// Apply the KV cache updates (such as K-shifts, defragmentation, etc.)
-    pub fn kv_cache_update(&mut self) {
-        unsafe { llama_cpp_sys::llama_kv_self_update(self.context.as_ptr()) }
+        unsafe {
+            llama_cpp_sys::llama_memory_seq_pos_max(
+                llama_cpp_sys::llama_get_memory(self.context.as_ptr()),
+                seq_id,
+            )
+        }
     }
 }

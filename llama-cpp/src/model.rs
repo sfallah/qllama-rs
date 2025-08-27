@@ -187,8 +187,7 @@ impl LlamaModel {
     /// Get the decoder start token.
     #[must_use]
     pub fn decode_start_token(&self) -> LlamaToken {
-        let token =
-            unsafe { llama_cpp_sys::llama_model_decoder_start_token(self.model.as_ptr()) };
+        let token = unsafe { llama_cpp_sys::llama_model_decoder_start_token(self.model.as_ptr()) };
         LlamaToken(token)
     }
 
@@ -495,8 +494,7 @@ impl LlamaModel {
     pub fn n_head_kv(&self) -> u32 {
         // It's never possible for this to panic because while the API interface is defined as an int32_t,
         // the field it's accessing is a uint32_t.
-        u32::try_from(unsafe { llama_cpp_sys::llama_model_n_head_kv(self.model.as_ptr()) })
-            .unwrap()
+        u32::try_from(unsafe { llama_cpp_sys::llama_model_n_head_kv(self.model.as_ptr()) }).unwrap()
     }
 
     /// Get metadata value as a string by key name

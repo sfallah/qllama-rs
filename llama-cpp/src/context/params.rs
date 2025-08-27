@@ -446,7 +446,6 @@ impl LlamaContextParams {
         self
     }
 
-
     /// Check whether embeddings are enabled
     ///
     /// # Examples

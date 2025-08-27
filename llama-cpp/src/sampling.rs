@@ -25,9 +25,8 @@ impl LlamaSampler {
     /// Sample and accept a token from the idx-th output of the last evaluation
     #[must_use]
     pub fn sample(&mut self, ctx: &LlamaContext, idx: i32) -> LlamaToken {
-        let token = unsafe {
-            llama_cpp_sys::llama_sampler_sample(self.sampler, ctx.context.as_ptr(), idx)
-        };
+        let token =
+            unsafe { llama_cpp_sys::llama_sampler_sample(self.sampler, ctx.context.as_ptr(), idx) };
 
         LlamaToken(token)
     }
@@ -72,7 +71,7 @@ impl LlamaSampler {
     }
 
     /// Gets the random seed used by this sampler.
-    /// 
+    ///
     /// Returns:
     /// - For random samplers (dist, mirostat, mirostat_v2): returns their current seed
     /// - For sampler chains: returns the first non-default seed found in reverse order
@@ -80,7 +79,7 @@ impl LlamaSampler {
     #[must_use]
     pub fn get_seed(&self) -> u32 {
         unsafe { llama_cpp_sys::llama_sampler_get_seed(self.sampler) }
-    }    
+    }
 
     /// Combines a list of samplers into a single sampler that applies each component sampler one
     /// after another.
@@ -232,7 +231,7 @@ impl LlamaSampler {
     ///
     /// let mut data_array = LlamaTokenDataArray::new(vec![
     ///     LlamaTokenData::new(LlamaToken(0), 0.0, 0.0),
-    ///     LlamaTokenData::new(LlamaToken(1), 1.0, 0.0), 
+    ///     LlamaTokenData::new(LlamaToken(1), 1.0, 0.0),
     ///     LlamaTokenData::new(LlamaToken(2), 2.0, 0.0),
     /// ], false);
     ///
@@ -503,7 +502,7 @@ impl LlamaSampler {
     #[must_use]
     pub fn logit_bias(n_vocab: i32, biases: &[LlamaLogitBias]) -> Self {
         let data = biases.as_ptr().cast::<llama_cpp_sys::llama_logit_bias>();
-        
+
         let sampler = unsafe {
             llama_cpp_sys::llama_sampler_init_logit_bias(n_vocab, biases.len() as i32, data)
         };
