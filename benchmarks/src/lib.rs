@@ -353,8 +353,9 @@ pub fn init_reranker_context<'a>(
     model: &'a LlamaModel,
     backend: &'a LlamaBackend,
     max_tokens: u32,
+    pooling: Option<LlamaPoolingType>,
 ) -> Result<LlamaContext<'a>> {
-    let pooling_type = LlamaPoolingType::Rank;
+    let pooling_type = pooling.unwrap_or(LlamaPoolingType::Rank);
     let parallelism = std::thread::available_parallelism()?.get() as u32;
     println!("parallelism: {}", parallelism);
     let ctx_params = LlamaContextParams::default()
@@ -363,8 +364,8 @@ pub fn init_reranker_context<'a>(
         .with_pooling_type(pooling_type)
         .with_n_ctx(NonZeroU32::new(max_tokens))
         .with_n_ubatch(max_tokens)
-        .with_n_batch(max_tokens)
-        .with_kv_unified(true);
+        .with_kv_unified(true)
+        .with_n_batch(max_tokens);
     let ctx = model.new_context(&backend, ctx_params)?;
 
     Ok(ctx)

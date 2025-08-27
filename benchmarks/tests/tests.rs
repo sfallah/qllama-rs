@@ -4,6 +4,7 @@ mod tetes {
     use fast_text_splitter::config::SplitterLiteConfig;
     use fast_text_splitter::hf_tokenizer::HFTokenizer;
     use fast_text_splitter::splitter::split_node::utils::SplitResultLite;
+    use llama_cpp::context::params::LlamaPoolingType;
     use llama_cpp::context::LlamaContext;
     use llama_cpp::llama_batch::LlamaBatch;
     use llama_cpp::model::{AddBos, LlamaModel};
@@ -328,12 +329,14 @@ mod tetes {
 
     #[test]
     fn test() -> Result<()> {
-        let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf".to_string();
+        //let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf".to_string();
         //let model_path = "models/snowflake-arctic-embed-m-v1.5-q4_k_m.gguf".to_string();
         //let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf".to_string();
 
         //let model_path = "models/all-MiniLM-L6-v2-ggml-model-f16.gguf".to_string();
         //let model_path = "models/multilingual-e5-large-instruct-q4_k_m.gguf".to_string();
+
+        let model_path = "models/Qwen3-Embedding-0.6B-Q8_0.gguf".to_string();
 
         let backend = init_backend(true)?;
         let model = init_model(&model_path, &backend)?;
@@ -408,10 +411,12 @@ mod tetes {
         let query_summaries = serde_json::from_str::<QuerySummaries>(&input_str)?;
 
         let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf";
+        //let model_path = "models/qwen3-reranker-0.6b-q4_k_m.gguf";
         let backend = init_backend(true)?;
         let model = init_model(model_path, &backend)?;
-        let max_tokens = 4096;
-        let mut ctx = init_reranker_context(&model, &backend, max_tokens)?;
+        let max_tokens = 2048;
+        let pooling_type = Some(LlamaPoolingType::Rank);
+        let mut ctx = init_reranker_context(&model, &backend, max_tokens, pooling_type)?;
 
         let eos = "</s>";
         let sep = "</s>";

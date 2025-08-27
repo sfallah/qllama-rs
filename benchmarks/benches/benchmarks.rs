@@ -1,10 +1,8 @@
 use anyhow::Context;
 use criterion::{criterion_main, Criterion};
-use fast_text_splitter::hf_tokenizer::init_tokenizer;
 use indexmap::IndexMap;
-use llama_cpp::context::params::LlamaContextParams;
+use llama_cpp::context::params::{LlamaContextParams, LlamaPoolingType};
 use llama_cpp::context::LlamaContext;
-use llama_cpp::ggml_time_us;
 use llama_cpp::llama_backend::LlamaBackend;
 use llama_cpp::llama_batch::LlamaBatch;
 use llama_cpp::model::params::LlamaModelParams;
@@ -12,8 +10,8 @@ use llama_cpp::model::{AddBos, LlamaModel};
 use llama_cpp::token::LlamaToken;
 use llama_cpp_rs_bench::split_data::QuerySummaries;
 use llama_cpp_rs_bench::{
-    batch_decode_rerank, hf_tokenize, init_backend, init_model, init_reranker_context,
-    init_splitter, llama_cpp_tokenize, process_batch, process_single, to_llama_tokens,
+    batch_decode_rerank, hf_tokenize, init_model, init_reranker_context, init_splitter,
+    llama_cpp_tokenize, process_batch, process_single, to_llama_tokens,
 };
 use rayon::prelude::*;
 use std::fs;
@@ -304,7 +302,11 @@ pub fn benches() {
     let mut backend = LlamaBackend::init().unwrap();
     backend.void_logs();
 
-    let model_params = if cfg!(any(feature = "cuda", feature= "cuda-no-vmm", feature = "metal")) {
+    let model_params = if cfg!(any(
+        feature = "cuda",
+        feature = "cuda-no-vmm",
+        feature = "metal"
+    )) {
         LlamaModelParams::default().with_n_gpu_layers(1000)
     } else {
         LlamaModelParams::default()
@@ -313,13 +315,15 @@ pub fn benches() {
     //let model_path = "models/gte-qwen2-1.5b-instruct-q4_k_m.gguf".to_string();
     //let model_path = "models/snowflake-arctic-embed-m-v1.5-q4_k_m.gguf".to_string();
     //let model_path = "models/bge-large-en-v1.5-q4_k_m.gguf".to_string();
-    let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf".to_string();
+    //let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf".to_string();
+    let model_path = "models/Qwen3-Embedding-0.6B-Q8_0.gguf".to_string();
     let model_path = PathBuf::from(model_path);
 
     //let model_id = "Alibaba-NLP/gte-Qwen2-1.5B-instruct".to_string();
     //let model_id = "Snowflake/snowflake-arctic-embed-m-v1.5".to_string();
     //let model_id = "BAAI/bge-large-en-v1.5".to_string();
     let model_id = "sentence-transformers/all-MiniLM-L6-v2".to_string();
+    let model_id = "Qwen/Qwen3-Embedding-0.6B".to_string();
 
     let model = LlamaModel::load_from_file(&backend, model_path, &model_params).unwrap();
 
@@ -404,11 +408,12 @@ pub fn benches() {
     let query_summaries = serde_json::from_str::<QuerySummaries>(&input_str).unwrap();
 
     //let model_path = "models/bge-reranker-v2-m3-f16.gguf";
-    let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf";
+    //let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf";
     //let model_path = "models/jina-reranker-v1-tiny-en-q4_k_m.gguf";
+    let model_path = "models/qwen3-reranker-0.6b-q4_k_m.gguf";
     let model = init_model(model_path, &backend).unwrap();
     let max_tokens = 2048;
-    let mut ctx = init_reranker_context(&model, &backend, max_tokens).unwrap();
+    let mut ctx = init_reranker_context(&model, &backend, max_tokens, Some(LlamaPoolingType::Last)).unwrap();
 
     reranker_benchmark(
         &mut criterion,
