@@ -251,6 +251,48 @@ impl LlamaModel {
         Ok(String::from_utf8(builder)?)
     }
 
+    fn common_detokenize(
+        &self,
+        tokens: &[LlamaToken],
+        special: bool,
+    ) -> Result<String, std::string::FromUtf8Error> {
+        let mut text = Vec::with_capacity(std::cmp::max(tokens.len(), 8));
+        text.resize(text.capacity(), 0);
+
+        let mut n_chars = unsafe {
+            llama_cpp_sys::llama_detokenize(
+                self.vocab_ptr(),
+                tokens.as_ptr().cast::<llama_cpp_sys::llama_token>(),
+                tokens.len() as i32,
+                text.as_mut_ptr() as *mut i8,
+                text.len() as i32,
+                false,
+                special,
+            )
+        };
+
+        if n_chars < 0 {
+            text.resize((-n_chars) as usize, 0);
+            n_chars = unsafe {
+                llama_cpp_sys::llama_detokenize(
+                    self.vocab_ptr(),
+                    tokens.as_ptr().cast::<llama_cpp_sys::llama_token>(),
+                    tokens.len() as i32,
+                    text.as_mut_ptr() as *mut i8,
+                    text.len() as i32,
+                    false,
+                    special,
+                )
+            };
+            debug_assert!(n_chars <= text.len() as i32);
+        }
+
+        text.resize(n_chars as usize, 0);
+
+        // Convert to String (assuming UTF-8)
+        String::from_utf8(text)
+    }
+
     /// Convert a string to a Vector of tokens.
     ///
     /// # Errors
