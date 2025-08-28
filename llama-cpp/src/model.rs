@@ -251,7 +251,7 @@ impl LlamaModel {
         Ok(String::from_utf8(builder)?)
     }
 
-    fn common_detokenize(
+    pub fn common_detokenize(
         &self,
         tokens: &[LlamaToken],
         special: bool,
