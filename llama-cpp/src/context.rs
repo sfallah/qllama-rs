@@ -196,7 +196,7 @@ impl<'model> LlamaContext<'model> {
     /// # Panics
     ///
     /// - underlying logits data is null
-    pub fn candidates(&self) -> impl Iterator<Item=LlamaTokenData> + '_ {
+    pub fn candidates(&self) -> impl Iterator<Item = LlamaTokenData> + '_ {
         (0_i32..).zip(self.get_logits()).map(|(i, logit)| {
             let token = LlamaToken::new(i);
             LlamaTokenData::new(token, *logit, 0_f32)
@@ -235,9 +235,10 @@ impl<'model> LlamaContext<'model> {
     /// - token data returned is null
     #[must_use]
     pub fn get_all_seq_logits(&self, n_seq: usize) -> &[f32] {
-        let data = unsafe { llama_cpp_sys::llama_get_logits(self.context.as_ptr()) };
+        let data = unsafe { llama_cpp_sys::llama_get_logits_ith(self.context.as_ptr(), -1) };
         assert!(!data.is_null(), "logits data for last token is null");
-        let n_vocab = usize::try_from(self.model.n_vocab()).expect("n_vocab does not fit into a usize");
+        let n_vocab =
+            usize::try_from(self.model.n_vocab()).expect("n_vocab does not fit into a usize");
         let len = usize::try_from(n_seq)
             .and_then(|n| Ok(n.checked_mul(n_vocab).expect("n_output * n_vocab overflow")))
             .expect("n_output * n_vocab does not fit into a usize");
@@ -273,7 +274,7 @@ impl<'model> LlamaContext<'model> {
     /// # Panics
     ///
     /// - logit `i` is not initialized.
-    pub fn candidates_ith(&self, i: i32) -> impl Iterator<Item=LlamaTokenData> + '_ {
+    pub fn candidates_ith(&self, i: i32) -> impl Iterator<Item = LlamaTokenData> + '_ {
         (0_i32..).zip(self.get_logits_ith(i)).map(|(i, logit)| {
             let token = LlamaToken::new(i);
             LlamaTokenData::new(token, *logit, 0_f32)
