@@ -196,7 +196,7 @@ impl<'model> LlamaContext<'model> {
     /// # Panics
     ///
     /// - underlying logits data is null
-    pub fn candidates(&self) -> impl Iterator<Item = LlamaTokenData> + '_ {
+    pub fn candidates(&self) -> impl Iterator<Item=LlamaTokenData> + '_ {
         (0_i32..).zip(self.get_logits()).map(|(i, logit)| {
             let token = LlamaToken::new(i);
             LlamaTokenData::new(token, *logit, 0_f32)
@@ -234,6 +234,32 @@ impl<'model> LlamaContext<'model> {
     /// - `n_vocab` does not fit into a usize
     /// - token data returned is null
     #[must_use]
+    pub fn get_all_seq_logits(&self, n_seq: usize) -> &[f32] {
+        let data = unsafe { llama_cpp_sys::llama_get_logits(self.context.as_ptr()) };
+        assert!(!data.is_null(), "logits data for last token is null");
+        let n_vocab = usize::try_from(self.model.n_vocab()).expect("n_vocab does not fit into a usize");
+        let len = usize::try_from(n_seq)
+            .and_then(|n| Ok(n.checked_mul(n_vocab).expect("n_output * n_vocab overflow")))
+            .expect("n_output * n_vocab does not fit into a usize");
+        unsafe { slice::from_raw_parts(data, len) }
+    }
+
+    /// Token logits obtained from the last call to `decode()`.
+    /// The logits for which `batch.logits[i] != 0` are stored contiguously
+    /// in the order they have appeared in the batch.
+    /// Rows: number of tokens for which `batch.logits[i] != 0`
+    /// Cols: `n_vocab`
+    ///
+    /// # Returns
+    ///
+    /// A slice containing the logits for the last decoded token.
+    /// The size corresponds to the `n_vocab` parameter of the context's model.
+    ///
+    /// # Panics
+    ///
+    /// - `n_vocab` does not fit into a usize
+    /// - token data returned is null
+    #[must_use]
     pub fn get_logits(&self) -> &[f32] {
         let data = unsafe { llama_cpp_sys::llama_get_logits(self.context.as_ptr()) };
         assert!(!data.is_null(), "logits data for last token is null");
@@ -247,7 +273,7 @@ impl<'model> LlamaContext<'model> {
     /// # Panics
     ///
     /// - logit `i` is not initialized.
-    pub fn candidates_ith(&self, i: i32) -> impl Iterator<Item = LlamaTokenData> + '_ {
+    pub fn candidates_ith(&self, i: i32) -> impl Iterator<Item=LlamaTokenData> + '_ {
         (0_i32..).zip(self.get_logits_ith(i)).map(|(i, logit)| {
             let token = LlamaToken::new(i);
             LlamaTokenData::new(token, *logit, 0_f32)
@@ -278,7 +304,6 @@ impl<'model> LlamaContext<'model> {
     /// - logit `i` is not initialized.
     #[must_use]
     pub fn get_logits_ith(&self, i: i32) -> &[f32] {
-
         let data = unsafe { llama_cpp_sys::llama_get_logits_ith(self.context.as_ptr(), i) };
         let len = usize::try_from(self.model.n_vocab()).expect("n_vocab does not fit into a usize");
 
