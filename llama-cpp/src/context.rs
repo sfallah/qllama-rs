@@ -234,13 +234,19 @@ impl<'model> LlamaContext<'model> {
     /// - `n_vocab` does not fit into a usize
     /// - token data returned is null
     #[must_use]
-    pub fn get_all_seq_logits(&self, n_seq: usize) -> &[f32] {
-        let data = unsafe { llama_cpp_sys::llama_get_logits_ith(self.context.as_ptr(), -1) };
+    pub fn get_all_logits(&self, n_seq: usize) -> &[f32] {
+        let data = unsafe { llama_cpp_sys::llama_get_logits(self.context.as_ptr()) };
         assert!(!data.is_null(), "logits data for last token is null");
+
         let n_vocab =
             usize::try_from(self.model.n_vocab()).expect("n_vocab does not fit into a usize");
+        let n_output = self.initialized_logits.len();
         let len = usize::try_from(n_seq)
             .and_then(|n| Ok(n.checked_mul(n_vocab).expect("n_output * n_vocab overflow")))
+            .and_then(|n| {
+                Ok(n.checked_mul(n_output)
+                    .expect("n_output * n_vocab * n_seq does not fit into a usize"))
+            })
             .expect("n_output * n_vocab does not fit into a usize");
         unsafe { slice::from_raw_parts(data, len) }
     }
