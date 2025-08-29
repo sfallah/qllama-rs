@@ -278,17 +278,6 @@ impl<'model> LlamaContext<'model> {
     /// - logit `i` is not initialized.
     #[must_use]
     pub fn get_logits_ith(&self, i: i32) -> &[f32] {
-        assert!(
-            self.initialized_logits.contains(&i),
-            "logit {i} is not initialized. only {:?} is",
-            self.initialized_logits
-        );
-        assert!(
-            self.n_ctx() > u32::try_from(i).expect("i does not fit into a u32"),
-            "n_ctx ({}) must be greater than i ({})",
-            self.n_ctx(),
-            i
-        );
 
         let data = unsafe { llama_cpp_sys::llama_get_logits_ith(self.context.as_ptr(), i) };
         let len = usize::try_from(self.model.n_vocab()).expect("n_vocab does not fit into a usize");
