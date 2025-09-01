@@ -179,7 +179,7 @@ impl LlamaContextParams {
     /// ```
     #[must_use]
     pub fn with_kv_unified(mut self, kv_unified: bool) -> Self {
-        self.context_params.kv_unified = kv_unified;
+        //self.context_params.kv_unified = kv_unified;
         self
     }
 

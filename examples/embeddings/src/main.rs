@@ -108,7 +108,7 @@ fn main() -> Result<()> {
     let ctx_params = LlamaContextParams::default()
         .with_n_threads_batch(std::thread::available_parallelism()?.get().try_into()?)
         //.with_n_seq_max(4)
-        .with_kv_unified(true)
+        //.with_kv_unified(true)
         .with_embeddings(true);
 
     let mut ctx = model

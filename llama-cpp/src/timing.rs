@@ -36,7 +36,7 @@ impl LlamaTimings {
                 t_eval_ms,
                 n_p_eval,
                 n_eval,
-                n_reused,
+                //n_reused,
             },
         }
     }

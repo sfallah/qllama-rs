@@ -133,7 +133,7 @@ impl LlamaContext<'_> {
         unsafe {
             llama_cpp_sys::llama_memory_clear(
                 llama_cpp_sys::llama_get_memory(self.context.as_ptr()),
-                true,
+                //true,
             ) // true means clear all sequences
         }
     }
