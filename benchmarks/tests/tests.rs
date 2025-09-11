@@ -7,12 +7,12 @@ mod tetes {
     use llama_cpp::context::params::LlamaPoolingType;
     use llama_cpp::context::LlamaContext;
     use llama_cpp::llama_batch::LlamaBatch;
-    use llama_cpp::model::{AddBos, LlamaModel};
+    use llama_cpp::model::{AddBos, LlamaModel, Special};
     use llama_cpp::token::LlamaToken;
     use llama_cpp_rs_bench::split_data::{QuerySummaries, SplitData, SummaryData};
     use llama_cpp_rs_bench::{
-        batch_decode_rerank, get_embeddings, init_backend, init_context, init_model,
-        init_reranker_context, init_splitter, llama_cpp_tokenize, process_batch,
+        batch_decode_rerank, batch_decode_rerank_last, get_embeddings, init_backend, init_context,
+        init_model, init_reranker_context, init_splitter, llama_cpp_tokenize, process_batch,
         process_splits_batch, SentenceScore,
     };
     use rayon::prelude::*;
@@ -352,7 +352,7 @@ mod tetes {
         let sentences1 = sentences1.map(|s| s.to_string()).to_vec();
         let embeddings1 = process_splits_batch(&model, &mut ctx, &sentences1)?;
 
-        let cache_used = ctx.get_kv_cache_used_cells();
+        let cache_used = ctx.get_kv_cache_used_cells(0);
         println!("cache_used: {}", cache_used);
 
         let embeddings1_ts = Tensor::new(embeddings1, &Device::Cpu)?;
@@ -412,6 +412,8 @@ mod tetes {
 
         let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf";
         //let model_path = "models/qwen3-reranker-0.6b-q4_k_m.gguf";
+        //let model_path = "models/Qwen3-Reranker-0.6B.f16.gguf";
+        //let model_path = "/Users/sabafallah/dev/qimia_ai_dev/ngxson.llama.cpp/gguf_models/qwen3-gguf/qwen3-reranker-0.6b-my-xsn.gguf";
         let backend = init_backend(true)?;
         let model = init_model(model_path, &backend)?;
         let max_tokens = 2048;
@@ -421,6 +423,10 @@ mod tetes {
         let eos = "</s>";
         let sep = "</s>";
         let bos = "<s>";
+
+        let bos_token = model.token_bos();
+        let eos_token = model.token_eos();
+        let sep_token = model.token_sep();
 
         let prompt_lines = {
             let query = query_summaries.query;
@@ -496,6 +502,266 @@ mod tetes {
             println!("summary: {}", summary);
         }
 
+        Ok(())
+    }
+
+    #[test]
+    fn bge_reranker_simple_test() -> Result<()> {
+        let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf";
+        let backend = init_backend(true)?;
+        let model = init_model(model_path, &backend)?;
+        let max_tokens = 2048;
+        let pooling_type = Some(LlamaPoolingType::Rank);
+        let mut ctx = init_reranker_context(&model, &backend, max_tokens, pooling_type)?;
+
+        let eos = "</s>";
+        let sep = "</s>";
+        let bos = "<s>";
+
+        let bos_token = model.token_bos();
+        let eos_token = model.token_eos();
+        let sep_token = model.token_sep();
+
+        let query = "What is machine learning?";
+        let documents = [
+            "Angela Merkel was the Chancellor of Germany",
+            "Pizza is made with tomatoes and cheese",
+            "Deep learning uses neural networks...",
+            "The weather today is sunny and warm",
+            "Machine learning is a subset of artificial intelligence",
+        ];
+
+        let prompt_lines = {
+            let mut lines = Vec::new();
+            for doc in &documents {
+                // Todo!  update to get eos and sep from model instead of hardcoding
+                lines.push(format!("{bos}{query}{eos}{sep}{doc}{eos}"));
+            }
+            lines
+        };
+
+        // tokenize the prompt
+        let tokens_lines_list = prompt_lines
+            .iter()
+            .map(|line| model.str_to_token(line, AddBos::Never))
+            .collect::<Result<Vec<_>, _>>()
+            .with_context(|| format!("failed to tokenize {:?}", prompt_lines))?;
+
+        let n_ctx = ctx.n_ctx() as usize;
+
+        if tokens_lines_list.iter().any(|tok| n_ctx < tok.len()) {
+            bail!("One of the provided prompts exceeds the size of the context window");
+        }
+
+        let n_embd = model.n_embd();
+
+        // create a llama_batch with the size of the context
+        // we use this object to submit token data for decoding
+        let mut batch = LlamaBatch::new(max_tokens as usize, 0, 1);
+
+        let mut max_seq_id_batch = 0;
+        let mut output = Vec::with_capacity(tokens_lines_list.len());
+        let normalise = true;
+        for tokens in &tokens_lines_list {
+            // Flush the batch if the next prompt would exceed our batch size
+            if (batch.n_tokens() as usize + tokens.len()) > max_tokens as usize {
+                batch_decode_rerank(
+                    &mut ctx,
+                    &mut batch,
+                    max_seq_id_batch,
+                    &mut output,
+                    normalise,
+                    "rank".to_string(),
+                )?;
+                max_seq_id_batch = 0;
+                batch.clear();
+            }
+
+            batch.add_sequence(tokens, max_seq_id_batch, false)?;
+            max_seq_id_batch += 1;
+        }
+        // Handle final batch
+        batch_decode_rerank(
+            &mut ctx,
+            &mut batch,
+            max_seq_id_batch,
+            &mut output,
+            normalise,
+            "rank".to_string(),
+        )?;
+
+        let scores = output
+            .iter()
+            .map(|embeddings| embeddings[0])
+            .collect::<Vec<f32>>();
+        let mut scores = scores.iter().enumerate().collect::<Vec<(usize, &f32)>>();
+        // sort by score
+        scores.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
+        for (idx, score) in scores.iter() {
+            println!("--------------- {} ---------------", idx);
+            println!("score: {}", score);
+            let doc = documents.get(*idx).unwrap();
+            println!("doc: {}", doc);
+        }
+
+        Ok(())
+    }
+
+    fn format_instruction(instruction: Option<&str>, query: &str, doc: &str) -> String {
+        let instruction = instruction.unwrap_or(
+            "Given a web search query, retrieve relevant passages that answer the query",
+        );
+        let output = format!(
+            "<Instruct>: {:?}\n<Query>: {:?}\n<Document>: {:?}",
+            instruction, query, doc
+        );
+        output
+    }
+
+    #[test]
+    fn qwen_reranker_test() -> Result<()> {
+        let json_file_path = "tests/test_data/bert_paper_query_summaries.json";
+        let input_str = fs::read_to_string(json_file_path)?;
+        let query_summaries = serde_json::from_str::<QuerySummaries>(&input_str)?;
+
+        let model_path = "/Users/sabafallah/dev/qimia_ai_dev/ngxson.llama.cpp/gguf_models/qwen3-gguf/qwen3-reranker-0.6b-my-xsn.gguf";
+        let backend = init_backend(true)?;
+        let model = init_model(model_path, &backend)?;
+        let max_tokens = 8192;
+        let pooling_type = Some(LlamaPoolingType::Last);
+        let mut ctx = init_reranker_context(&model, &backend, max_tokens, pooling_type)?;
+
+        let prefix = "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n<|im_start|>user\n";
+        let suffix = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n";
+
+        let prefix_tokens = model.str_to_token(prefix, AddBos::Never)?;
+        let suffix_tokens = model.str_to_token(suffix, AddBos::Never)?;
+
+        let binding = model.str_to_token("yes", AddBos::Never)?;
+        let yes_token = binding.get(0).unwrap();
+        let binding = model.str_to_token("no", AddBos::Never)?;
+        let no_token = binding.get(0).unwrap();
+        println!("yes_token: {:?}", yes_token);
+        println!("no_token: {:?}", no_token);
+
+        let prefix_detokenized = model.common_detokenize(&prefix_tokens, true)?;
+        let suffix_detokenized = model.common_detokenize(&suffix_tokens, true)?;
+        assert_eq!(prefix, prefix_detokenized);
+        assert_eq!(suffix, suffix_detokenized);
+        println!("prefix: {}", prefix_detokenized);
+        println!("suffix: {}", suffix_detokenized);
+
+        let instruction =
+            Some("Given a web search query, retrieve relevant passages that answer the query");
+
+        //let query = query_summaries.query.clone();
+        //let documents = query_summaries.summaries.clone();
+
+        let documents = Vec::from(&[
+            "Angela Merkel was the Chancellor of Germany",
+            "Pizza is made with tomatoes and cheese",
+            "Deep learning uses neural networks...",
+            "The weather today is sunny and warm",
+            "Machine learning is a subset of artificial intelligence",
+        ]);
+        let query = "What is machine learning?";
+
+        let prompt_lines: Vec<String> = {
+            let mut lines = Vec::new();
+
+            for doc in documents.iter() {
+                let text = format_instruction(instruction, &query, doc);
+                lines.push(text);
+            }
+            lines
+        };
+        // tokenize the prompt
+        let tokens_lines_list: Vec<_> = prompt_lines
+            .iter()
+            .map(|line| {
+                let prompt_line_tokens = model
+                    .str_to_token(line, AddBos::Never)
+                    .expect("unable to tokenize");
+                let mut tokens: Vec<LlamaToken> = prefix_tokens.clone();
+                tokens.extend(prompt_line_tokens);
+                tokens.extend(suffix_tokens.clone());
+                tokens
+            })
+            .collect();
+
+        for tokens in &tokens_lines_list {
+            println!("tokens len: {}", tokens.len());
+            let text = model
+                .common_detokenize(&tokens, true)
+                .expect("unable to convert tokens to string");
+            println!("text: {}", text);
+        }
+
+        let n_ctx = ctx.n_ctx() as usize;
+
+        if tokens_lines_list.iter().any(|tok| n_ctx < tok.len()) {
+            bail!("One of the provided prompts exceeds the size of the context window");
+        }
+
+        let n_embd = model.n_embd();
+
+        // create a llama_batch with the size of the context
+        // we use this object to submit token data for decoding
+        let mut batch = LlamaBatch::new(max_tokens as usize, 0, 1);
+
+        let mut max_seq_id_batch = 0;
+        let mut output = Vec::with_capacity(tokens_lines_list.len());
+        for tokens in &tokens_lines_list {
+            // Flush the batch if the next prompt would exceed our batch size
+            if (batch.n_tokens() as usize + tokens.len()) > max_tokens as usize {
+                batch_decode_rerank_last(&mut ctx, &mut batch, &mut output, max_seq_id_batch)?;
+                max_seq_id_batch = 0;
+                batch.clear();
+            }
+
+            batch.add_sequence(tokens, max_seq_id_batch, false)?;
+            max_seq_id_batch += 1;
+        }
+        // Handle final batch
+        batch_decode_rerank_last(&mut ctx, &mut batch, &mut output, max_seq_id_batch)?;
+
+        let mut scores: Vec<_> = output.iter().enumerate().collect();
+        println!("scores before sort: {:?}", scores);
+        scores.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
+        println!("scores after sort: {:?}", scores);
+        for (idx, score) in scores.iter() {
+            println!("--------------- {} ---------------", idx);
+            println!("score: {}", score);
+            let summary = documents.get(*idx).unwrap();
+            println!("summary: {}", summary);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn raw_pointer_test() -> Result<()> {
+        // Example array
+        let arr = [1, 2, 3, 4, 5];
+
+        // Get the raw pointer to the start of the array
+        let ptr = arr.as_ptr();
+
+        // Calculate the length of the slice
+        let len = arr.len();
+
+        // Define the range i..j
+        let i = 1;
+        let j = 4;
+
+        // Ensure the range is within the bounds of the array
+        assert!(i < j && j <= len);
+
+        // Create the slice
+        let slice = unsafe { std::slice::from_raw_parts(ptr.add(i), j - i) };
+
+        // Print the slice
+        println!("{:?}", slice);
         Ok(())
     }
 }

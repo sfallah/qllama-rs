@@ -1,3 +1,5 @@
+extern crate core;
+
 pub mod split_data;
 
 use anyhow::{Context, Result};
@@ -102,6 +104,67 @@ pub fn batch_decode_rerank(
             embeddings.to_vec()
         };
         output.push(normalized);
+    }
+
+    batch.clear();
+
+    Ok(())
+}
+
+pub fn batch_decode_rerank_last(
+    ctx: &mut LlamaContext,
+    batch: &mut LlamaBatch,
+    output: &mut Vec<f32>,
+    s_batch: i32,
+) -> Result<()> {
+    // Clear previous kv_cache values
+    ctx.clear_kv_cache();
+
+    ctx.decode(batch).with_context(|| "llama_decode() failed")?;
+
+    for i in 0..s_batch {
+        let embed = ctx
+            .embeddings_seq_ith(i)
+            .with_context(|| "Failed to get sequence embeddings")?;
+        // print first 4 and last 4 values of embedding
+        let debug_embed: Vec<_> = embed
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j < 4 || *j >= embed.len() - 4)
+            .collect();
+        println!("Embedding {}: {:?}", i, debug_embed);
+        let yes_logit = embed[0];
+        // calculate softmax of yes_logit
+
+        output.push(f32::abs(yes_logit));
+    }
+
+    batch.clear();
+
+    Ok(())
+}
+
+pub fn batch_decode_rerank_last_new(
+    ctx: &mut LlamaContext,
+    batch: &mut LlamaBatch,
+    output: &mut Vec<f32>,
+    s_batch: i32,
+    yes_token: &LlamaToken,
+    no_token: &LlamaToken,
+) -> Result<()> {
+    // Clear previous kv_cache values
+    ctx.clear_kv_cache();
+
+    ctx.decode(batch).with_context(|| "llama_decode() failed")?;
+
+    let logits = ctx.get_all_last_logits(s_batch as usize);
+
+    for i in 0..s_batch {
+        let batch_logits = logits
+            .get(i as usize)
+            .with_context(|| "Failed to get logits for sequence")?;
+        let score = compute_logits(batch_logits, yes_token.0 as usize, no_token.0 as usize);
+        output.push(score);
     }
 
     batch.clear();
@@ -391,4 +454,41 @@ pub fn init_splitter(
         model_id.clone(),
     );
     Ok(splitter_config)
+}
+
+/// Computes the probability for the "yes" token given logits for a single example.
+///
+/// # Arguments
+/// * `logits` - Slice of logits for the vocabulary (length = vocab size)
+/// * `token_true_id` - Index of the "yes" token in the vocabulary
+/// * `token_false_id` - Index of the "no" token in the vocabulary
+///
+/// # Returns
+/// Probability for the "yes" token (as f32)
+pub fn compute_logits(logits: &[f32], token_true_id: usize, token_false_id: usize) -> f32 {
+    let yes_logit = logits[token_true_id];
+    let no_logit = logits[token_false_id];
+    println!("yes_logit: {}, no_logit: {}", yes_logit, no_logit);
+    let scores = [no_logit, yes_logit];
+    // log-softmax: x_i - log(sum_j exp(x_j))
+    let max_score = scores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let exp_sum: f32 = scores.iter().map(|&x| (x - max_score).exp()).sum();
+    let log_sum = max_score + exp_sum.ln();
+    let yes_log_softmax = yes_logit - log_sum;
+    yes_log_softmax.exp()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_compute_logits_basic() {
+        let logits = vec![0.0, 1.0, 2.0, 3.0];
+        let token_true_id = 2; // 2.0
+        let token_false_id = 1; // 1.0
+        let prob_yes = compute_logits(&logits, token_true_id, token_false_id);
+        let expected =
+            (2.0f32 - (2.0f32.max(1.0) + ((2.0f32 - 2.0).exp() + (1.0f32 - 2.0).exp()).ln())).exp();
+        assert!((prob_yes - expected).abs() < 1e-6);
+    }
 }

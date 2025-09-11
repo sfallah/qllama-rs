@@ -1214,7 +1214,7 @@ checksum = "23fb14cb19457329c82206317a5663005a4d404783dc74f4252769b0d5f42856"
 [[package]]
 name = "llama-cpp"
 version = "0.1.0"
-source = "git+https://gitlab.com/qimiaio/qimia-ai-dev/llama-cpp-rs.git?branch=llama.cpp_b6228_2025-08-21#6edf978ef10a14002c1145af9cb0e581f03ec545"
+source = "git+https://gitlab.com/qimiaio/qimia-ai-dev/llama-cpp-rs.git?branch=llama.cpp_b6300_2025-08-27#93e3672dddc8de3c6f50d934be8b8d1868c6d978"
 dependencies = [
  "enumflags2",
  "llama-cpp-sys",
@@ -1242,7 +1242,7 @@ dependencies = [
 [[package]]
 name = "llama-cpp-sys"
 version = "0.1.0"
-source = "git+https://gitlab.com/qimiaio/qimia-ai-dev/llama-cpp-rs.git?branch=llama.cpp_b6228_2025-08-21#6edf978ef10a14002c1145af9cb0e581f03ec545"
+source = "git+https://gitlab.com/qimiaio/qimia-ai-dev/llama-cpp-rs.git?branch=llama.cpp_b6300_2025-08-27#93e3672dddc8de3c6f50d934be8b8d1868c6d978"
 dependencies = [
  "bindgen",
  "cc",

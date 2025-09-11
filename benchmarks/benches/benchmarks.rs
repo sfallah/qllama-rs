@@ -322,7 +322,7 @@ pub fn benches() {
     //let model_id = "Alibaba-NLP/gte-Qwen2-1.5B-instruct".to_string();
     //let model_id = "Snowflake/snowflake-arctic-embed-m-v1.5".to_string();
     //let model_id = "BAAI/bge-large-en-v1.5".to_string();
-    let model_id = "sentence-transformers/all-MiniLM-L6-v2".to_string();
+    //let model_id = "sentence-transformers/all-MiniLM-L6-v2".to_string();
     let model_id = "Qwen/Qwen3-Embedding-0.6B".to_string();
 
     let model = LlamaModel::load_from_file(&backend, model_path, &model_params).unwrap();
@@ -413,7 +413,8 @@ pub fn benches() {
     let model_path = "models/qwen3-reranker-0.6b-q4_k_m.gguf";
     let model = init_model(model_path, &backend).unwrap();
     let max_tokens = 2048;
-    let mut ctx = init_reranker_context(&model, &backend, max_tokens, Some(LlamaPoolingType::Last)).unwrap();
+    let mut ctx =
+        init_reranker_context(&model, &backend, max_tokens, Some(LlamaPoolingType::Last)).unwrap();
 
     reranker_benchmark(
         &mut criterion,
@@ -423,6 +424,8 @@ pub fn benches() {
         max_tokens,
     );
 
+    /*
+
     reranker_benchmark_improved(
         &mut criterion,
         &mut ctx,
@@ -430,6 +433,8 @@ pub fn benches() {
         &query_summaries,
         max_tokens,
     );
+
+     */
 }
 
 criterion_main!(benches);
