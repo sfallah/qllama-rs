@@ -240,7 +240,11 @@ impl LlamaContextParams {
     /// ```
     #[must_use]
     pub fn with_flash_attention(mut self, enabled: bool) -> Self {
-        self.context_params.flash_attn = enabled;
+        if enabled {
+            self.context_params.flash_attn_type = llama_cpp_sys::LLAMA_FLASH_ATTN_TYPE_ENABLED;
+        } else {
+            self.context_params.flash_attn_type = llama_cpp_sys::LLAMA_FLASH_ATTN_TYPE_DISABLED;
+        }
         self
     }
 
@@ -255,7 +259,7 @@ impl LlamaContextParams {
     /// ```
     #[must_use]
     pub fn flash_attention(&self) -> bool {
-        self.context_params.flash_attn
+        self.context_params.flash_attn_type == llama_cpp_sys::LLAMA_FLASH_ATTN_TYPE_ENABLED
     }
 
     /// Set the `offload_kqv` parameter to control offloading KV cache & KQV ops to GPU
