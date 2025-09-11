@@ -335,6 +335,7 @@ dependencies = [
  "clap",
  "hf-hub",
  "llama-cpp",
+ "llama-cpp-sys",
 ]
 
 [[package]]

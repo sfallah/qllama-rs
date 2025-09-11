@@ -1,1 +1,5 @@
 #include "llama.cpp/include/llama.h"
+#include "llama.cpp/ggml/include/ggml.h"
+#include "llama.cpp/ggml/include/ggml-backend.h"
+#include "llama.cpp/ggml/include/ggml-opt.h"
+#include "llama.cpp/ggml/include/gguf.h"

@@ -118,8 +118,8 @@ fn main() -> Result<()> {
     // Split the prompt to display the batching functionality
     //let prompt_lines = prompt.lines();
     let prompt_lines = [
-        //"The new movie is awesome",
-        //"The cat sits outside",
+        "The new movie is awesome",
+        "The cat sits outside",
         "A man is playing guitar",
         "I love pasta",
     ];
@@ -239,6 +239,7 @@ fn batch_decode(
     }
 
     batch.clear();
+    llama_cpp_sys::ggml_tensor::from()
 
     Ok(())
 }
