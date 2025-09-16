@@ -41,6 +41,34 @@ pub fn llama_cpp_embedding(
     });
 }
 
+pub fn llama_cpp_embedding_sentences(
+    c: &mut Criterion,
+    ctx: &mut LlamaContext,
+    model: &LlamaModel,
+    sentences1: &Vec<&str>,
+    sentences2: &Vec<&str>,
+) {
+    c.bench_function("llama_cpp_embedding_sentences", |b| {
+        b.iter(|| {
+            let tokens_list = sentences1
+                .iter()
+                .map(|res| llama_cpp_tokenize(&model, res))
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            let embeddings = process_batch(ctx, black_box(&tokens_list)).unwrap();
+            black_box(embeddings);
+
+            let tokens_list = sentences2
+                .iter()
+                .map(|res| llama_cpp_tokenize(&model, res))
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            let embeddings = process_batch(ctx, black_box(&tokens_list)).unwrap();
+            black_box(embeddings);
+        });
+    });
+}
+
 pub fn llama_cpp_tokenize_benchmark(
     c: &mut Criterion,
     model: &LlamaModel,
@@ -316,21 +344,24 @@ pub fn benches() {
     //let model_path = "models/snowflake-arctic-embed-m-v1.5-q4_k_m.gguf".to_string();
     //let model_path = "models/bge-large-en-v1.5-q4_k_m.gguf".to_string();
     //let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf".to_string();
-    let model_path = "models/Qwen3-Embedding-0.6B-Q8_0.gguf".to_string();
+    //let model_path = "models/Qwen3-Embedding-0.6B-Q8_0.gguf".to_string();
+    //let model_path = "models/qwen3-embedding-0.6b-q4_k_m.gguf".to_string();
+    let model_path = "models/embeddinggemma-300m-q4_k_m.gguf".to_string();
     let model_path = PathBuf::from(model_path);
 
     //let model_id = "Alibaba-NLP/gte-Qwen2-1.5B-instruct".to_string();
     //let model_id = "Snowflake/snowflake-arctic-embed-m-v1.5".to_string();
     //let model_id = "BAAI/bge-large-en-v1.5".to_string();
     //let model_id = "sentence-transformers/all-MiniLM-L6-v2".to_string();
-    let model_id = "Qwen/Qwen3-Embedding-0.6B".to_string();
+    //let model_id = "Qwen/Qwen3-Embedding-0.6B".to_string();
+    let model_id = "google/embeddinggemma-300m".to_string();
 
     let model = LlamaModel::load_from_file(&backend, model_path, &model_params).unwrap();
 
     // initialize the context
     //let parallelism = std::thread::available_parallelism().unwrap().get() as u32;
     //println!("parallelism: {}", parallelism);
-    let max_ctx = 512;
+    let max_ctx = 2048;
     let ctx_params = LlamaContextParams::default()
         .with_embeddings(true)
         .with_n_batch(max_ctx)
@@ -403,6 +434,28 @@ pub fn benches() {
 
     llama_cpp_embedding(&mut criterion, &mut ctx, &model, &splits_str);
 
+    let sentences1 = vec![
+        "The new movie is awesome",
+        "The cat sits outside",
+        "A man is playing guitar",
+        "I love pasta",
+    ];
+
+    let sentences2 = vec![
+        "The dog plays in the garden",
+        "The new movie is so great",
+        "A woman watches TV",
+        "Do you like pizza?",
+    ];
+
+    llama_cpp_embedding_sentences(
+        &mut criterion,
+        &mut ctx,
+        &model,
+        &sentences1,
+        &sentences2,
+    );
+
     let json_file_path = "tests/test_data/bert_paper_query_summaries.json";
     let input_str = fs::read_to_string(json_file_path).unwrap();
     let query_summaries = serde_json::from_str::<QuerySummaries>(&input_str).unwrap();
@@ -416,6 +469,7 @@ pub fn benches() {
     let mut ctx =
         init_reranker_context(&model, &backend, max_tokens, Some(LlamaPoolingType::Last)).unwrap();
 
+    /*
     reranker_benchmark(
         &mut criterion,
         &mut ctx,
@@ -423,6 +477,7 @@ pub fn benches() {
         &query_summaries,
         max_tokens,
     );
+     */
 
     /*
 

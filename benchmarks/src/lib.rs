@@ -20,7 +20,7 @@ use tokenizers::Tokenizer;
 #[derive(Clone, PartialEq)]
 pub struct SentenceScore {
     pub sentence: String,
-    pub score: f32,
+    pub score: f64,
 }
 
 impl Debug for SentenceScore {
@@ -281,7 +281,7 @@ pub fn process_splits_batch(
             batch_decode(ctx, &mut batch, max_seq_id_batch, &mut output, true)?;
             max_seq_id_batch = 0;
         }
-        batch.add_sequence(&tokens, max_seq_id_batch, false)?;
+        batch.add_sequence(&tokens, max_seq_id_batch, true)?;
         max_seq_id_batch += 1;
     }
 

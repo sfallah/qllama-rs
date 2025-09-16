@@ -280,19 +280,21 @@ mod tetes {
         //let out_dir = "output/United_States/bge-m3";
         let out_dir = "output/bert_paper/bge-m3";
         //let out_dir = "output/superlinear_embeddings/all-MiniLM-L6-v2_new";
+        let out_dir = "output/superlinear_embeddings/embeddinggemma";
 
         //let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf";
         //let model_path ="models/multilingual-e5-large-instruct-q8_0.gguf";
         //let model_path = "models/bge-large-en-v1.5-q8_0.gguf";
         let model_path = "models/bge-m3-q4_k_m.gguf";
+        let model_path = "models/embeddinggemma-300m-q4_k_m.gguf";
         //let model_path = "models/gemma-2-9b-it-Q4_K_M.gguf";
         //let model_path = "models/snowflake-arctic-embed-m-v1.5-q4_k_m.gguf";
         //let model_path = "models/gte-qwen2-1.5b-instruct-q4_k_m.gguf";
         //let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf";
 
         //let text_file_path = "tests/test_data/United_States.txt";
-        //let text_file_path = "tests/test_data/superlinear.txt";
-        let text_file_path = "tests/test_data/bert_paper.txt";
+        let text_file_path = "tests/test_data/superlinear.txt";
+        //let text_file_path = "tests/test_data/bert_paper.txt";
 
         //let hf_model = Some("sentence-transformers/all-MiniLM-L6-v2".to_string());
         //let hf_model = Some("Snowflake/snowflake-arctic-embed-m-v1.5".to_string());
@@ -300,6 +302,7 @@ mod tetes {
         //let hf_model = Some("intfloat/multilingual-e5-large-instruct".to_string());
         //let hf_model = Some("BAAI/bge-large-en-v1.5".to_string());
         let hf_model = Some("BAAI/bge-m3".to_string());
+        let hf_model = Some("google/embeddinggemma-300m".to_string());
         //let hf_model = Some("google/gemma-2-9b-it".to_string());
         //let hf_model = Some("BAAI/bge-reranker-v2-m3".to_string());
         let max_tokens = Some(512);
@@ -336,9 +339,12 @@ mod tetes {
         //let model_path = "models/all-MiniLM-L6-v2-ggml-model-f16.gguf".to_string();
         //let model_path = "models/multilingual-e5-large-instruct-q4_k_m.gguf".to_string();
 
-        let model_path = "models/Qwen3-Embedding-0.6B-Q8_0.gguf".to_string();
+        //let model_path = "models/Qwen3-Embedding-0.6B-Q8_0.gguf".to_string();
+        let model_path = "models/embeddinggemma-300m-q4_k_m.gguf".to_string();
 
-        let backend = init_backend(true)?;
+
+
+        let backend = init_backend(false)?;
         let model = init_model(&model_path, &backend)?;
         //let mut ctx = init_context(&model, &backend, Some(3072), Some(3072), Some(3072))?;
         let mut ctx = init_context(&model, &backend, None, None, None)?;
@@ -350,7 +356,27 @@ mod tetes {
             "I love pasta",
         ];
         let sentences1 = sentences1.map(|s| s.to_string()).to_vec();
-        let embeddings1 = process_splits_batch(&model, &mut ctx, &sentences1)?;
+        let gemma_prompt = "task: sentence similarity | query: ";
+
+
+        println!("----------------------------------");
+        for s in sentences1.iter() {
+            println!("{}",s);
+        }
+        println!("----------------------------------");
+
+        let sentences1_prompts = sentences1
+            .iter()
+            .map(|s| gemma_prompt.to_string() + s)
+            .collect::<Vec<String>>();
+
+        for prompt in sentences1_prompts.iter() {
+            println!("{}",prompt);
+        }
+
+        println!("----------------------------------");
+
+        let embeddings1 = process_splits_batch(&model, &mut ctx, &sentences1_prompts)?;
 
         let cache_used = ctx.get_kv_cache_used_cells(0);
         println!("cache_used: {}", cache_used);
@@ -365,12 +391,28 @@ mod tetes {
         ];
 
         let sentences2 = sentences2.map(|s| s.to_string()).to_vec();
-        let embeddings2 = process_splits_batch(&model, &mut ctx, &sentences2)?;
+        println!("----------------------------------");
+        for s in sentences2.iter() {
+            println!("{}",s);
+        }
+
+        let sentences2_prompts = sentences2
+            .iter()
+            .map(|s| gemma_prompt.to_string() + s)
+            .collect::<Vec<String>>();
+
+        for prompt in sentences2_prompts.iter() {
+            println!("{}",prompt);
+        }
+        println!("----------------------------------");
+        let embeddings2 = process_splits_batch(&model, &mut ctx, &sentences2_prompts)?;
 
         let embeddings2_ts = Tensor::new(embeddings2, &Device::Cpu)?;
 
-        let similarities = similarity_matrix(&embeddings1_ts, &embeddings2_ts, false).unwrap();
-        let similarities_vec = similarities.to_vec2::<f32>().unwrap();
+        let similarities = similarity_matrix(&embeddings1_ts, &embeddings2_ts, true)?;
+        let similarities_vec: Vec<Vec<f32>> = similarities
+            .to_vec2::<f32>()
+            .with_context(|| "failed to convert similarities to vec")?;
         for (idx_i, sentence1) in sentences1.iter().enumerate() {
             println!("{}:", sentence1);
             let mut sts_similarities = Vec::new();
@@ -378,7 +420,7 @@ mod tetes {
                 let score = similarities_vec.get(idx_i).unwrap().get(idx_j).unwrap();
                 sts_similarities.push(SentenceScore {
                     sentence: sentence2.to_string(),
-                    score: *score,
+                    score: *score as f64,
                 });
             }
             sts_similarities.sort();
@@ -388,6 +430,44 @@ mod tetes {
             }
         }
         Ok(())
+    }
+    
+    fn common_sim_matrix(embeds1: &Vec<Vec<f32>>, embeds2: &Vec<Vec<f32>>) -> Vec<Vec<f64>> {
+        let mut sim_matrix = Vec::new();
+        for embd1 in embeds1.iter() {
+            let mut sim_row = Vec::new();
+            for embd2 in embeds2.iter() {
+                let sim = common_embd_similarity_cos(embd1, embd2);
+                sim_row.push(sim);
+            }
+            sim_matrix.push(sim_row);
+        }
+        sim_matrix
+    }
+
+    fn common_embd_similarity_cos(embd1: &[f32], embd2: &[f32]) -> f64 {
+        assert_eq!(embd1.len(), embd2.len());
+        let n = embd1.len();
+
+        let mut sum: f64 = 0.0;
+        let mut sum1: f64 = 0.0;
+        let mut sum2: f64 = 0.0;
+
+        for i in 0..n {
+            sum += embd1[i] as f64 * embd2[i] as f64;
+            sum1 += embd1[i] as f64 * embd1[i] as f64;
+            sum2 += embd2[i] as f64 * embd2[i] as f64;
+        }
+
+        // Handle the case where one or both vectors are zero vectors
+        if sum1 == 0.0 || sum2 == 0.0 {
+            if sum1 == 0.0 && sum2 == 0.0 {
+                return 1.0f64; // two zero vectors are similar
+            }
+            return 0.0f64; // one zero vector is dissimilar to any non-zero vector
+        }
+
+        sum / (sum1.sqrt() * sum2.sqrt())
     }
 
     #[test]
