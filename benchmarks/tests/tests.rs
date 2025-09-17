@@ -340,11 +340,13 @@ mod tetes {
         //let model_path = "models/multilingual-e5-large-instruct-q4_k_m.gguf".to_string();
 
         //let model_path = "models/Qwen3-Embedding-0.6B-Q8_0.gguf".to_string();
-        let model_path = "models/embeddinggemma-300m-q4_k_m.gguf".to_string();
+        //let model_path = "models/embeddinggemma-300m-q4_k_m.gguf".to_string();
+        //let model_path = "models/embeddinggemma-300m-f16.gguf".to_string();
+        let model_path = "models/embeddinggemma-300M-BF16.gguf".to_string();
 
 
 
-        let backend = init_backend(false)?;
+        let backend = init_backend(true)?;
         let model = init_model(&model_path, &backend)?;
         //let mut ctx = init_context(&model, &backend, Some(3072), Some(3072), Some(3072))?;
         let mut ctx = init_context(&model, &backend, None, None, None)?;

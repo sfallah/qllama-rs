@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.97"
 fast-text-splitter = { git = "https://gitlab.com/qimiaio/qimia-ai-dev/fast-text-splitter.git", branch = "feat/merge_level_async_sent" }
-llama-cpp = { git = "https://gitlab.com/qimiaio/qimia-ai-dev/llama-cpp-rs.git", branch = "llama.cpp_b6444_2025-09-11" }
+llama-cpp = { git = "https://gitlab.com/qimiaio/qimia-ai-dev/llama-cpp-rs.git", branch = "llama.cpp_b6490_2025-09-17" }
 serde_json = "1.0.128"
 serde = { version = "1.0.208", features = ["derive"] }
 tokenizers = { version = "0.21.1", features = ["http", "onig", "esaxx_fast"] }
