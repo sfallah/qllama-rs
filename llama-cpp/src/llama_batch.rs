@@ -192,6 +192,12 @@ impl LlamaBatch {
     pub fn n_tokens(&self) -> i32 {
         self.llama_batch.n_tokens
     }
+
+    /// return sequence ids for the token at index `token_index` and the array index
+    #[must_use]
+    pub fn get_seq_id_ith(&self, token_idx: usize, i: usize) -> i32 {
+        unsafe { *(*self.llama_batch.seq_id.add(token_idx)).add(i) }
+    }
 }
 
 impl Drop for LlamaBatch {
