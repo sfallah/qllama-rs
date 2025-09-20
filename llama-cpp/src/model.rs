@@ -624,10 +624,12 @@ impl LlamaModel {
         &self,
         name: Option<&str>,
     ) -> Result<LlamaChatTemplate, ChatTemplateError> {
-        let name_cstr = name.map(CString::new);
-        let name_ptr = match name_cstr {
-            Some(Ok(name)) => name.as_ptr(),
-            _ => std::ptr::null(),
+        let name_ptr = match name {
+            Some(name) => match CString::new(name) {
+                Ok(name) => name.as_ptr(),
+                Err(e) => std::ptr::null(),
+            },
+            None => std::ptr::null(),
         };
         let result =
             unsafe { llama_cpp_sys::llama_model_chat_template(self.model.as_ptr(), name_ptr) };
