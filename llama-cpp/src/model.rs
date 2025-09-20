@@ -624,15 +624,16 @@ impl LlamaModel {
         &self,
         name: Option<&str>,
     ) -> Result<LlamaChatTemplate, ChatTemplateError> {
-        let name_ptr = match name {
-            Some(name) => match CString::new(name) {
-                Ok(name) => name.as_ptr(),
-                Err(e) => std::ptr::null(),
-            },
-            None => std::ptr::null(),
+        let result = unsafe {
+            let name_ptr = match name {
+                Some(name) => match CString::new(name) {
+                    Ok(name) => name.as_ptr(),
+                    Err(e) => std::ptr::null(),
+                },
+                None => std::ptr::null(),
+            };
+            llama_cpp_sys::llama_model_chat_template(self.model.as_ptr(), name_ptr)
         };
-        let result =
-            unsafe { llama_cpp_sys::llama_model_chat_template(self.model.as_ptr(), name_ptr) };
 
         // Convert result to Rust String if not null
         if result.is_null() {
