@@ -645,6 +645,37 @@ impl LlamaModel {
         }
     }
 
+    /// Get chat template from model by name, creating a new owned CString.
+    ///
+    /// This is a convenience method around [Self::chat_template] which avoids
+    /// lifetime issues by creating a new owned CString for the template.
+    ///
+    pub fn chat_template_new(&self, name: &str) -> Result<LlamaChatTemplate, ChatTemplateError> {
+        // Keep CString alive across the FFI call
+        let name_cstr = CString::new(name)?;
+        let name_ptr = name_cstr.as_ptr();
+
+        let result = unsafe {
+            llama_cpp_sys::llama_model_chat_template(self.model.as_ptr(), name_ptr)
+        };
+
+        if result.is_null() {
+            return Err(ChatTemplateError::MissingTemplate);
+        }
+
+        // Copy into an owned string (don’t take ownership of the C pointer!)
+        let cstr = unsafe { CStr::from_ptr(result) };
+
+        // If your wrapper wants a CString:
+        let owned = cstr.to_owned(); // copies bytes incl. NUL into a new CString
+        Ok(LlamaChatTemplate(owned))
+
+        // Or, if you prefer a Rust String with UTF-8 validation:
+        // let s = cstr.to_str().map_err(|_| ChatTemplateError::InvalidUtf8)?.to_owned();
+        // Ok(LlamaChatTemplate::from_string(s))
+    }
+
+
     /// Loads a model from a file.
     ///
     /// # Errors

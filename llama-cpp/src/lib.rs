@@ -82,6 +82,9 @@ pub enum ChatTemplateError {
     /// The chat template was not valid utf8.
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),
+    
+    #[error("invalid chat template name {0}")]
+    InvalidName(String),
 }
 
 /// Failed fetching metadata value
