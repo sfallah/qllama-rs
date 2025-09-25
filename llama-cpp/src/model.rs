@@ -624,24 +624,31 @@ impl LlamaModel {
         &self,
         name: Option<&str>,
     ) -> Result<LlamaChatTemplate, ChatTemplateError> {
-        let result = unsafe {
-            let name_ptr = match name {
-                Some(name) => match CString::new(name) {
-                    Ok(name) => name.as_ptr(),
-                    Err(e) => std::ptr::null(),
-                },
-                None => std::ptr::null(),
-            };
-            llama_cpp_sys::llama_model_chat_template(self.model.as_ptr(), name_ptr)
-        };
+        match name {
+            Some(name) => match CString::new(name) {
+                Ok(name) => {
+                    let rsult = unsafe {
+                        llama_cpp_sys::llama_model_chat_template(self.model.as_ptr(), name.as_ptr())
+                    };
+                    Self::return_template(rsult)
+                }
+                Err(e) => Err(ChatTemplateError::InvalidName(name.into())),
+            },
+            None => {
+                let rsult = unsafe {
+                    llama_cpp_sys::llama_model_chat_template(self.model.as_ptr(), std::ptr::null())
+                };
+                Self::return_template(rsult)
+            }
+        }
+    }
 
-        // Convert result to Rust String if not null
+    fn return_template(result: *const c_char) -> Result<LlamaChatTemplate, ChatTemplateError> {
         if result.is_null() {
             Err(ChatTemplateError::MissingTemplate)
         } else {
-            let chat_template_cstr = unsafe { CStr::from_ptr(result) };
-            let chat_template = CString::new(chat_template_cstr.to_bytes())?;
-            Ok(LlamaChatTemplate(chat_template))
+            let cstr = unsafe { CStr::from_ptr(result) };
+            Ok(LlamaChatTemplate(cstr.to_owned()))
         }
     }
 
@@ -655,9 +662,8 @@ impl LlamaModel {
         let name_cstr = CString::new(name)?;
         let name_ptr = name_cstr.as_ptr();
 
-        let result = unsafe {
-            llama_cpp_sys::llama_model_chat_template(self.model.as_ptr(), name_ptr)
-        };
+        let result =
+            unsafe { llama_cpp_sys::llama_model_chat_template(self.model.as_ptr(), name_ptr) };
 
         if result.is_null() {
             return Err(ChatTemplateError::MissingTemplate);
@@ -675,6 +681,30 @@ impl LlamaModel {
         // Ok(LlamaChatTemplate::from_string(s))
     }
 
+    /// Get chat template from model by name, creating a new owned CString.
+    ///
+
+    pub fn chat_template_old(
+        &self,
+        name: Option<&str>,
+    ) -> Result<LlamaChatTemplate, ChatTemplateError> {
+        let name_cstr = name.map(CString::new);
+        let name_ptr = match name_cstr {
+            Some(Ok(name)) => name.as_ptr(),
+            _ => std::ptr::null(),
+        };
+        let result =
+            unsafe { llama_cpp_sys::llama_model_chat_template(self.model.as_ptr(), name_ptr) };
+
+        // Convert result to Rust String if not null
+        if result.is_null() {
+            Err(ChatTemplateError::MissingTemplate)
+        } else {
+            let chat_template_cstr = unsafe { CStr::from_ptr(result) };
+            let chat_template = CString::new(chat_template_cstr.to_bytes())?;
+            Ok(LlamaChatTemplate(chat_template))
+        }
+    }
 
     /// Loads a model from a file.
     ///
@@ -895,5 +925,87 @@ impl TryFrom<llama_cpp_sys::llama_vocab_type> for VocabType {
             llama_cpp_sys::LLAMA_VOCAB_TYPE_SPM => Ok(VocabType::SPM),
             unknown => Err(LlamaTokenTypeFromIntError::UnknownValue(unknown)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::params::LlamaPoolingType;
+    use crate::llama_backend::LlamaBackend;
+    use crate::model::LlamaModelParams;
+    use crate::model::LlamaTokenAttr;
+    use crate::model::LlamaTokenAttrs;
+    use crate::model::Special;
+    use std::num::{NonZeroU16, NonZeroU32};
+    use std::path::{Path, PathBuf};
+
+    pub fn init_backend(log: bool) -> anyhow::Result<LlamaBackend> {
+        let mut backend = LlamaBackend::init()?;
+        if !log {
+            backend.void_logs();
+        }
+        Ok(backend)
+    }
+
+    fn init_model(model_path: &str, backend: &LlamaBackend) -> anyhow::Result<LlamaModel> {
+        let model_params = if cfg!(any(feature = "cuda", feature = "metal")) {
+            LlamaModelParams::default().with_n_gpu_layers(1000)
+        } else {
+            LlamaModelParams::default()
+        };
+        let model_path = PathBuf::from(model_path);
+        let model = LlamaModel::load_from_file(&backend, model_path, &model_params)?;
+        Ok(model)
+    }
+
+    pub fn init_reranker_context<'a>(
+        model: &'a LlamaModel,
+        backend: &'a LlamaBackend,
+        max_tokens: u32,
+        pooling: Option<LlamaPoolingType>,
+    ) -> anyhow::Result<LlamaContext<'a>> {
+        let pooling_type = pooling.unwrap_or(LlamaPoolingType::Rank);
+        let parallelism = std::thread::available_parallelism()?.get() as u32;
+        println!("parallelism: {}", parallelism);
+        let ctx_params = LlamaContextParams::default()
+            .with_n_threads_batch(parallelism.try_into()?)
+            .with_embeddings(true)
+            .with_pooling_type(pooling_type)
+            .with_n_ctx(NonZeroU32::new(max_tokens))
+            .with_n_ubatch(max_tokens)
+            .with_kv_unified(true)
+            .with_n_batch(max_tokens);
+        let ctx = model.new_context(&backend, ctx_params)?;
+
+        Ok(ctx)
+    }
+
+    #[test]
+    fn load_model() -> anyhow::Result<()> {
+        let model_path = "/Users/sabafallah/dev/qimia_ai_dev/ngxson.llama.cpp/gguf_models/qwen3-gguf/qwen3-reranker-0.6b-my_new.gguf";
+        let backend = init_backend(true)?;
+        let model = init_model(model_path, &backend)?;
+        let max_tokens = 8192;
+        let pooling_type = Some(LlamaPoolingType::Rank);
+        let template_val = model.meta_val_str("tokenizer.chat_template.rerank")?;
+        let chat_template = match model.chat_template_old(Some("rerank")) {
+            Ok(template) => match template.to_string() {
+                Ok(t) => {
+                    println!("Model chat template: {}", t);
+                    Some(t)
+                }
+                Err(_) => {
+                    println!("Model chat template is not valid UTF-8, using default.");
+                    None
+                }
+            },
+            Err(_) => {
+                println!("Model does not support chat template, using default.");
+                None
+            }
+        };
+        assert_eq!(template_val, chat_template.unwrap());
+        Ok(())
     }
 }
