@@ -19,7 +19,7 @@ tracing-core = "0.1"
 hf-hub = { version = "0.4.1" }
 bindgen = "0.72.0"
 cc = "1.2.15"
-anyhow = "1.0.96"
+anyhow = "1.0"
 clap = "4.5.31"
 encoding_rs = "0.8.35"
 tracing-subscriber = { version = "0.3", features = ["json"] }
