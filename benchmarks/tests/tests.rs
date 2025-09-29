@@ -342,7 +342,9 @@ mod tetes {
         //let model_path = "models/Qwen3-Embedding-0.6B-Q8_0.gguf".to_string();
         //let model_path = "models/embeddinggemma-300m-q4_k_m.gguf".to_string();
         //let model_path = "models/embeddinggemma-300m-f16.gguf".to_string();
-        let model_path = "models/embeddinggemma-300M-BF16.gguf".to_string();
+        //let model_path = "models/embeddinggemma-300M-BF16.gguf".to_string();
+        let model_path = "/Users/sabafallah/dev/qimia_ai_dev/llama.cpp/gguf_models/google/embeddinggemma-300m.gguf".to_string();
+
 
 
 
@@ -706,7 +708,7 @@ mod tetes {
         let input_str = fs::read_to_string(json_file_path)?;
         let query_summaries = serde_json::from_str::<QuerySummaries>(&input_str)?;
 
-        let model_path = "/Users/sabafallah/dev/qimia_ai_dev/ngxson.llama.cpp/gguf_models/qwen3-gguf/qwen3-reranker-0.6b-my-xsn.gguf";
+        let model_path = "models/Qwen3-Reranker-0.6B.f16.gguf";
         let backend = init_backend(true)?;
         let model = init_model(model_path, &backend)?;
         let max_tokens = 8192;
