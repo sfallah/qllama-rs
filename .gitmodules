@@ -1,3 +1,3 @@
 [submodule "llama-cpp-sys/llama.cpp"]
 	path = llama-cpp-sys/llama.cpp
-	url = https://github.com/ggerganov/llama.cpp.git
+	url = git@gitlab.com:qimiaio/qimia-ai-dev/llama.cpp.git
