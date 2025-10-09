@@ -343,7 +343,8 @@ mod tetes {
         //let model_path = "models/embeddinggemma-300m-q4_k_m.gguf".to_string();
         //let model_path = "models/embeddinggemma-300m-f16.gguf".to_string();
         //let model_path = "models/embeddinggemma-300M-BF16.gguf".to_string();
-        let model_path = "/Users/sabafallah/dev/qimia_ai_dev/llama.cpp/gguf_models/google/embeddinggemma-300m.gguf".to_string();
+        //let model_path = "models/embeddinggemma-300m-with-st-denses-Q4_K_M.gguf".to_string();
+        let model_path = "models/embeddinggemma-300m-qat-q4_0-unquantized_with_st_denses-Q4_0.gguf".to_string();
 
 
 

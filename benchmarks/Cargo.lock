@@ -49,9 +49,9 @@ checksum = "55cc3b69f167a1ef2e161439aa98aed94e6028e5f9a59be9a6ffb47aef1651f9"
 
 [[package]]
 name = "anyhow"
-version = "1.0.97"
+version = "1.0.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcfed56ad506cb2c684a14971b8861fdc3baaaae314b9e5f9bb532cbe3ba7a4f"
+checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 
 [[package]]
 name = "arbitrary"
@@ -1214,8 +1214,9 @@ checksum = "23fb14cb19457329c82206317a5663005a4d404783dc74f4252769b0d5f42856"
 [[package]]
 name = "llama-cpp"
 version = "0.1.0"
-source = "git+https://gitlab.com/qimiaio/qimia-ai-dev/llama-cpp-rs.git?branch=llama.cpp_b6490_2025-09-17#0f8cde6515a9bf4ac01b3b0b10332218445496fc"
+source = "git+https://gitlab.com/qimiaio/qimia-ai-dev/llama-cpp-rs.git?branch=embd_gemma_st_support#32cad1ad284c3035695fd96a5f114133ce644045"
 dependencies = [
+ "anyhow",
  "enumflags2",
  "llama-cpp-sys",
  "thiserror 2.0.11",
@@ -1242,7 +1243,7 @@ dependencies = [
 [[package]]
 name = "llama-cpp-sys"
 version = "0.1.0"
-source = "git+https://gitlab.com/qimiaio/qimia-ai-dev/llama-cpp-rs.git?branch=llama.cpp_b6490_2025-09-17#0f8cde6515a9bf4ac01b3b0b10332218445496fc"
+source = "git+https://gitlab.com/qimiaio/qimia-ai-dev/llama-cpp-rs.git?branch=embd_gemma_st_support#32cad1ad284c3035695fd96a5f114133ce644045"
 dependencies = [
  "bindgen",
  "cc",

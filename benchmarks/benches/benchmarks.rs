@@ -346,7 +346,11 @@ pub fn benches() {
     //let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf".to_string();
     //let model_path = "models/Qwen3-Embedding-0.6B-Q8_0.gguf".to_string();
     //let model_path = "models/qwen3-embedding-0.6b-q4_k_m.gguf".to_string();
-    let model_path = "models/embeddinggemma-300m-q4_k_m.gguf".to_string();
+    //let model_path = "models/embeddinggemma-300m.gguf".to_string();
+    //let model_path = "models/google/embeddinggemma-300m-Q4_K_M.gguf".to_string();
+    let model_path = "models/embeddinggemma-300m-qat-q4_0-unquantized_with_st_denses.gguf".to_string();
+    //let model_path = "models/embeddinggemma-300m-qat-q4_0-unquantized_with_st_denses-Q4_0.gguf".to_string();
+
     let model_path = PathBuf::from(model_path);
 
     //let model_id = "Alibaba-NLP/gte-Qwen2-1.5B-instruct".to_string();
@@ -354,7 +358,8 @@ pub fn benches() {
     //let model_id = "BAAI/bge-large-en-v1.5".to_string();
     //let model_id = "sentence-transformers/all-MiniLM-L6-v2".to_string();
     //let model_id = "Qwen/Qwen3-Embedding-0.6B".to_string();
-    let model_id = "google/embeddinggemma-300m".to_string();
+    //let model_id = "google/embeddinggemma-300m".to_string();
+    let model_id = "google/embeddinggemma-300m-qat-q4_0-unquantized".to_string();
 
     let model = LlamaModel::load_from_file(&backend, model_path, &model_params).unwrap();
 
