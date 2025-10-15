@@ -350,8 +350,8 @@ pub fn benches() {
     //let model_path = "models/google/embeddinggemma-300m-Q4_K_M.gguf".to_string();
     //let model_path = "models/embeddinggemma-300m-qat-q4_0-unquantized_with_st_denses.gguf".to_string();
     //let model_path = "models/embeddinggemma-300m-qat-q4_0-unquantized_with_st_denses-Q4_0.gguf".to_string();
-    let model_path = "models/embeddinggemma-300m-sentence-transformers-q8_0.gguf".to_string();
-    //let model_path = "models/embeddinggemma-300m-sentence-transformers-qat-q4_0.gguf".to_string();
+    //let model_path = "models/embeddinggemma-300m-sentence-transformers-q8_0.gguf".to_string();
+    let model_path = "models/embeddinggemma-300m-sentence-transformers-qat-q4_0.gguf".to_string();
     //let model_path = "models/embeddinggemma-300m-sentence-transformers-qat-q8_0.gguf".to_string();
 
     let model_path = PathBuf::from(model_path);
