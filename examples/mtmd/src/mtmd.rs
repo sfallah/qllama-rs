@@ -6,12 +6,15 @@ use std::num::NonZeroU32;
 use std::path::Path;
 
 use clap::Parser;
+use encoding_rs::UTF_8;
 
 use llama_cpp::context::params::LlamaContextParams;
 use llama_cpp::context::LlamaContext;
 use llama_cpp::llama_batch::LlamaBatch;
 use llama_cpp::model::params::LlamaModelParams;
-use llama_cpp::mtmd::{MtmdBitmap, MtmdBitmapError, MtmdContext, MtmdContextParams, MtmdInputText};
+use llama_cpp::mtmd::{
+    MtmdBitmap, MtmdBitmapError, MtmdContext, MtmdContextParams, MtmdInputText,
+};
 
 use llama_cpp::llama_backend::LlamaBackend;
 use llama_cpp::model::{LlamaChatMessage, LlamaChatTemplate, LlamaModel, Special};
@@ -48,6 +51,9 @@ pub struct MtmdCliParams {
     /// Number of threads
     #[arg(short = 't', long = "threads", value_name = "N", default_value = "4")]
     pub n_threads: i32,
+    /// Number of tokens to process in a batch during eval chunks
+    #[arg(long = "batch-size", value_name = "b", default_value = "1")]
+    pub batch_size: i32,
     /// Maximum number of tokens in context
     #[arg(long = "n-tokens", value_name = "N", default_value = "4096")]
     pub n_tokens: NonZeroU32,
@@ -67,11 +73,11 @@ pub struct MtmdCliParams {
 
 /// State of the MTMD CLI application.
 #[allow(missing_debug_implementations)]
-pub struct MtmdCliContext {
+pub struct MtmdCliContext<'a> {
     /// The MTMD context for multimodal processing.
     pub mtmd_ctx: MtmdContext,
     /// The batch used for processing tokens.
-    pub batch: LlamaBatch,
+    pub batch: LlamaBatch<'a>,
     /// The list of loaded bitmaps (images/audio).
     pub bitmaps: Vec<MtmdBitmap>,
     /// The number of past tokens processed.
@@ -82,7 +88,7 @@ pub struct MtmdCliContext {
     pub chat: Vec<LlamaChatMessage>,
 }
 
-impl MtmdCliContext {
+impl<'a> MtmdCliContext<'a> {
     /// Creates a new MTMD CLI context
     ///
     /// # Errors
@@ -110,7 +116,7 @@ impl MtmdCliContext {
             .chat_template(params.chat_template.as_deref())
             .map_err(|e| format!("Failed to get chat template: {e}"))?;
 
-        let batch = LlamaBatch::new(params.n_tokens.get() as usize, model.n_embd(), 1);
+        let batch = LlamaBatch::new(params.n_tokens.get() as usize, 1);
 
         Ok(Self {
             mtmd_ctx,
@@ -138,6 +144,7 @@ impl MtmdCliContext {
         context: &mut LlamaContext,
         msg: LlamaChatMessage,
         add_bos: bool,
+        batch_size: i32,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.chat.push(msg);
 
@@ -166,7 +173,7 @@ impl MtmdCliContext {
         // Clear bitmaps after tokenization
         self.bitmaps.clear();
 
-        self.n_past = chunks.eval_chunks(&self.mtmd_ctx, context, 0, 0, 1, true)?;
+        self.n_past = chunks.eval_chunks(&self.mtmd_ctx, context, 0, 0, batch_size, true)?;
         Ok(())
     }
 
@@ -181,10 +188,11 @@ impl MtmdCliContext {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut generated_tokens = Vec::new();
         let max_predict = if n_predict < 0 { i32::MAX } else { n_predict };
+        let mut decoder = UTF_8.new_decoder();
 
         for _i in 0..max_predict {
             // Sample next token
-            let token = sampler.sample(context, 0);
+            let token = sampler.sample(context, -1);
             generated_tokens.push(token);
             sampler.accept(token);
 
@@ -195,7 +203,7 @@ impl MtmdCliContext {
             }
 
             // Print token
-            let piece = model.token_to_str(token, Special::Tokenize)?;
+            let piece = model.token_to_piece(token, &mut decoder, true, None)?;
             print!("{piece}");
             io::stdout().flush()?;
 
@@ -242,7 +250,7 @@ fn run_single_turn(
     println!("Evaluating message: {msg:?}");
 
     // Evaluate the message (prefill)
-    ctx.eval_message(model, context, msg, true)?;
+    ctx.eval_message(model, context, msg, true, params.batch_size)?;
 
     // Generate response (decode)
     ctx.generate_response(model, context, sampler, params.n_predict)?;
@@ -284,7 +292,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create context
     let context_params = LlamaContextParams::default()
         .with_n_threads(params.n_threads)
-        .with_n_batch(1)
+        .with_n_batch(params.batch_size.try_into()?)
         .with_n_ctx(Some(params.n_tokens));
     let mut context = model.new_context(&backend, context_params)?;
 

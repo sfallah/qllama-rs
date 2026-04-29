@@ -20,8 +20,8 @@ use llama_cpp::ggml_time_us;
 use llama_cpp::llama_backend::LlamaBackend;
 use llama_cpp::llama_batch::LlamaBatch;
 use llama_cpp::model::params::LlamaModelParams;
+use llama_cpp::model::AddBos;
 use llama_cpp::model::LlamaModel;
-use llama_cpp::model::{AddBos, Special};
 
 #[derive(clap::Parser, Debug, Clone)]
 struct Args {
@@ -107,8 +107,6 @@ fn main() -> Result<()> {
     // initialize the context
     let ctx_params = LlamaContextParams::default()
         .with_n_threads_batch(std::thread::available_parallelism()?.get().try_into()?)
-        //.with_n_seq_max(4)
-        .with_kv_unified(true)
         .with_embeddings(true);
 
     let mut ctx = model
@@ -116,17 +114,10 @@ fn main() -> Result<()> {
         .with_context(|| "unable to create the llama_context")?;
 
     // Split the prompt to display the batching functionality
-    //let prompt_lines = prompt.lines();
-    let prompt_lines = [
-        //"The new movie is awesome",
-        //"The cat sits outside",
-        "A man is playing guitar",
-        "I love pasta",
-    ];
+    let prompt_lines = prompt.lines();
 
     // tokenize the prompt
     let tokens_lines_list = prompt_lines
-        .iter()
         .map(|line| model.str_to_token(line, AddBos::Always))
         .collect::<Result<Vec<_>, _>>()
         .with_context(|| format!("failed to tokenize {prompt}"))?;
@@ -143,11 +134,13 @@ fn main() -> Result<()> {
     // print the prompt token-by-token
     eprintln!();
 
+    let mut decoder = encoding_rs::UTF_8.new_decoder();
+
     for (i, token_line) in tokens_lines_list.iter().enumerate() {
         eprintln!("Prompt {i}");
         for token in token_line {
             // Attempt to convert token to string and print it; if it fails, print the token instead
-            match model.token_to_str(*token, Special::Tokenize) {
+            match model.token_to_piece(*token, &mut decoder, true, None) {
                 Ok(token_str) => eprintln!("{token} --> {token_str}"),
                 Err(e) => {
                     eprintln!("Failed to convert token to string, error: {e}");
@@ -159,40 +152,22 @@ fn main() -> Result<()> {
     }
 
     std::io::stderr().flush()?;
-
-    // create a llama_batch with the size of the context
-    // we use this object to submit token data for decoding
-    let mut batch = LlamaBatch::new(n_ctx, 0, 1);
-
-    let mut max_seq_id_batch = 0;
     let mut output = Vec::with_capacity(tokens_lines_list.len());
 
     let t_main_start = ggml_time_us();
 
     for tokens in &tokens_lines_list {
-        // Flush the batch if the next prompt would exceed our batch size
-        if (batch.n_tokens() as usize + tokens.len()) > n_ctx {
-            batch_decode(
-                &mut ctx,
-                &mut batch,
-                max_seq_id_batch,
-                &mut output,
-                normalise,
-            )?;
-            max_seq_id_batch = 0;
-        }
-
-        batch.add_sequence(tokens, max_seq_id_batch, true)?;
-        max_seq_id_batch += 1;
+        // Create a fresh batch for each sequence
+        let mut batch = LlamaBatch::new(n_ctx, 1);
+        batch.add_sequence(tokens, 0, false)?;
+        batch_decode(
+            &mut ctx,
+            &mut batch,
+            1, // Only one sequence in this batch
+            &mut output,
+            normalise,
+        )?;
     }
-    // Handle final batch
-    batch_decode(
-        &mut ctx,
-        &mut batch,
-        max_seq_id_batch,
-        &mut output,
-        normalise,
-    )?;
 
     let t_main_end = ggml_time_us();
 

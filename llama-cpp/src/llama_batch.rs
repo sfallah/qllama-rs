@@ -2,10 +2,11 @@
 
 use crate::token::LlamaToken;
 use llama_cpp_sys::{llama_batch, llama_batch_free, llama_batch_init, llama_pos, llama_seq_id};
+use std::marker::PhantomData;
 
 /// A safe wrapper around `llama_batch`.
 #[derive(Debug)]
-pub struct LlamaBatch {
+pub struct LlamaBatch<'a> {
     /// The number of tokens the batch was allocated with. they are safe to write to - but not necessarily read from as they are not necessarily initialized
     allocated: usize,
     /// The logits that are initialized. Used by [`LlamaContext`] to ensure that only initialized logits are accessed.
@@ -13,6 +14,7 @@ pub struct LlamaBatch {
     #[allow(clippy::doc_markdown)]
     /// The llama_cpp batch. always initialize by `llama_cpp_sys::llama_batch_init(allocated, <unknown>, <unknown>)`
     pub(crate) llama_batch: llama_batch,
+    phantom: PhantomData<&'a [LlamaToken]>,
 }
 
 /// Errors that can occur when adding a token to a batch.
@@ -26,7 +28,7 @@ pub enum BatchAddError {
     EmptyBuffer,
 }
 
-impl LlamaBatch {
+impl<'a> LlamaBatch<'a> {
     /// Clear the batch. This does not free the memory associated with the batch, but it does reset
     /// the number of tokens to 0.
     pub fn clear(&mut self) {
@@ -142,14 +144,15 @@ impl LlamaBatch {
     ///
     /// Panics if `n_tokens` is greater than `i32::MAX`.
     #[must_use]
-    pub fn new(n_tokens: usize, n_embd: i32, n_seq_max: i32) -> Self {
+    pub fn new(n_tokens: usize, n_seq_max: i32) -> Self {
         let n_tokens_i32 = i32::try_from(n_tokens).expect("cannot fit n_tokens into a i32");
-        let batch = unsafe { llama_batch_init(n_tokens_i32, n_embd, n_seq_max) };
+        let batch = unsafe { llama_batch_init(n_tokens_i32, 0, n_seq_max) };
 
         LlamaBatch {
             allocated: n_tokens,
             initialized_logits: vec![],
             llama_batch: batch,
+            phantom: PhantomData,
         }
     }
 
@@ -163,7 +166,7 @@ impl LlamaBatch {
     ///
     /// # Panics
     /// If the number of tokens in ``tokens`` exceeds [`i32::MAX`].
-    pub fn get_one(tokens: &[LlamaToken]) -> Result<Self, BatchAddError> {
+    pub fn get_one(tokens: &'a [LlamaToken]) -> Result<Self, BatchAddError> {
         if tokens.is_empty() {
             return Err(BatchAddError::EmptyBuffer);
         }
@@ -183,6 +186,7 @@ impl LlamaBatch {
                 .try_into()
                 .expect("number of tokens exceeds i32::MAX + 1")],
             llama_batch: batch,
+            phantom: PhantomData,
         };
         Ok(batch)
     }
@@ -192,22 +196,16 @@ impl LlamaBatch {
     pub fn n_tokens(&self) -> i32 {
         self.llama_batch.n_tokens
     }
-
-    /// return sequence ids for the token at index `token_index` and the array index
-    #[must_use]
-    pub fn get_seq_id_ith(&self, token_idx: usize, i: usize) -> i32 {
-        unsafe { *(*self.llama_batch.seq_id.add(token_idx)).add(i) }
-    }
 }
 
-impl Drop for LlamaBatch {
+impl<'a> Drop for LlamaBatch<'a> {
     /// Drops the `LlamaBatch`.
     ///
     /// ```
     /// # use llama_cpp::llama_batch::LlamaBatch;
     /// # use std::error::Error;
     /// # fn main() -> Result<(), Box<dyn Error>> {
-    /// let batch = LlamaBatch::new(512, 384, 1);
+    /// let batch = LlamaBatch::new(512, 1);
     /// // frees the memory associated with the batch. (allocated by llama.cpp)
     /// drop(batch);
     /// # Ok(())

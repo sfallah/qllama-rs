@@ -70,19 +70,23 @@ fn get_cargo_target_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
     Ok(target_dir.to_path_buf())
 }
 
-fn extract_lib_names(out_dir: &Path, build_shared_libs: bool) -> Vec<String> {
-    let lib_pattern = if cfg!(windows) {
-        "*.lib"
-    } else if cfg!(target_os = "macos") {
-        if build_shared_libs {
-            "*.dylib"
-        } else {
-            "*.a"
+fn extract_lib_names(out_dir: &Path, build_shared_libs: bool, target_os: &TargetOs) -> Vec<String> {
+    let lib_pattern = match target_os {
+        TargetOs::Windows(_) => "*.lib",
+        TargetOs::Apple(_) => {
+            if build_shared_libs {
+                "*.dylib"
+            } else {
+                "*.a"
+            }
         }
-    } else if build_shared_libs {
-        "*.so"
-    } else {
-        "*.a"
+        TargetOs::Linux | TargetOs::Android => {
+            if build_shared_libs {
+                "*.so"
+            } else {
+                "*.a"
+            }
+        }
     };
     let libs_dir = out_dir.join("lib*");
     let pattern = libs_dir.join(lib_pattern);
@@ -117,16 +121,17 @@ fn extract_lib_names(out_dir: &Path, build_shared_libs: bool) -> Vec<String> {
     lib_names
 }
 
-fn extract_lib_assets(out_dir: &Path) -> Vec<PathBuf> {
-    let shared_lib_pattern = if cfg!(windows) {
-        "*.dll"
-    } else if cfg!(target_os = "macos") {
-        "*.dylib"
-    } else {
-        "*.so"
+fn extract_lib_assets(out_dir: &Path, target_os: &TargetOs) -> Vec<PathBuf> {
+    let shared_lib_pattern = match target_os {
+        TargetOs::Windows(_) => "*.dll",
+        TargetOs::Apple(_) => "*.dylib",
+        TargetOs::Linux | TargetOs::Android => "*.so",
     };
 
-    let shared_libs_dir = if cfg!(windows) { "bin" } else { "lib" };
+    let shared_libs_dir = match target_os {
+        TargetOs::Windows(_) => "bin",
+        _ => "lib",
+    };
     let libs_dir = out_dir.join(shared_libs_dir);
     let pattern = libs_dir.join(shared_lib_pattern);
     debug_log!("Extract lib assets {}", pattern.display());
@@ -269,8 +274,12 @@ fn main() {
         .derive_partialeq(true)
         .allowlist_function("ggml_.*")
         .allowlist_type("ggml_.*")
+        .allowlist_function("gguf_.*")
+        .allowlist_type("gguf_.*")
         .allowlist_function("llama_.*")
         .allowlist_type("llama_.*")
+        .allowlist_function("llama_rs_.*")
+        .allowlist_type("llama_rs_.*")
         .prepend_enum_name(false);
 
     // Configure mtmd feature if enabled
@@ -420,6 +429,53 @@ fn main() {
         }
     }
 
+    // Fix bindgen header discovery on Windows MSVC
+    // Use cc crate to discover MSVC include paths by compiling a dummy file
+    if matches!(target_os, TargetOs::Windows(WindowsVariant::Msvc)) {
+        // Create a minimal dummy C file to extract compiler flags
+        let out_dir = env::var("OUT_DIR").unwrap();
+        let dummy_c = Path::new(&out_dir).join("dummy.c");
+        std::fs::write(&dummy_c, "int main() { return 0; }").unwrap();
+
+        // Use cc crate to get compiler with proper environment setup
+        let mut build = cc::Build::new();
+        build.file(&dummy_c);
+
+        // Get the actual compiler command cc would use
+        let compiler = build.try_get_compiler().unwrap();
+
+        // Extract include paths by checking compiler's environment
+        // cc crate sets up MSVC environment internally
+        let env_include = compiler
+            .env()
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("INCLUDE"))
+            .map(|(_, v)| v);
+
+        if let Some(include_paths) = env_include {
+            for include_path in include_paths
+                .to_string_lossy()
+                .split(';')
+                .filter(|s| !s.is_empty())
+            {
+                bindings_builder = bindings_builder
+                    .clang_arg("-isystem")
+                    .clang_arg(include_path);
+                debug_log!("Added MSVC include path: {}", include_path);
+            }
+        }
+
+        // Add MSVC compatibility flags
+        bindings_builder = bindings_builder
+            .clang_arg(format!("--target={}", target_triple))
+            .clang_arg("-fms-compatibility")
+            .clang_arg("-fms-extensions");
+
+        debug_log!(
+            "Configured bindgen with MSVC toolchain for target: {}",
+            target_triple
+        );
+    }
     let bindings = bindings_builder
         .generate()
         .expect("Failed to generate bindings");
@@ -431,9 +487,39 @@ fn main() {
         .expect("Failed to write bindings");
 
     println!("cargo:rerun-if-changed=wrapper.h");
+    println!("cargo:rerun-if-changed=wrapper_common.h");
+    println!("cargo:rerun-if-changed=wrapper_common.cpp");
+    println!("cargo:rerun-if-changed=wrapper_oai.h");
+    println!("cargo:rerun-if-changed=wrapper_oai.cpp");
+    println!("cargo:rerun-if-changed=wrapper_utils.h");
     println!("cargo:rerun-if-changed=wrapper_mtmd.h");
 
     debug_log!("Bindings Created");
+
+    let mut common_wrapper_build = cc::Build::new();
+    common_wrapper_build
+        .cpp(true)
+        .file("wrapper_common.cpp")
+        .file("wrapper_oai.cpp")
+        .include(&llama_src)
+        .include(llama_src.join("common"))
+        .include(llama_src.join("include"))
+        .include(llama_src.join("ggml/include"))
+        .include(llama_src.join("vendor"))
+        .flag_if_supported("-std=c++17")
+        .pic(true);
+
+    if matches!(target_os, TargetOs::Windows(WindowsVariant::Msvc)) {
+        common_wrapper_build.flag("/std:c++17");
+    }
+
+    // When static-stdcxx is enabled on Android, suppress the cc crate's automatic
+    // C++ stdlib linking (which defaults to c++_shared) so we can link c++_static instead.
+    if matches!(target_os, TargetOs::Android) && cfg!(feature = "static-stdcxx") {
+        common_wrapper_build.cpp_link_stdlib(None);
+    }
+
+    common_wrapper_build.compile("llama_cpp_sys_common_wrapper");
 
     // Build with Cmake
 
@@ -446,18 +532,92 @@ fn main() {
     config.define("LLAMA_BUILD_EXAMPLES", "OFF");
     config.define("LLAMA_BUILD_SERVER", "OFF");
     config.define("LLAMA_BUILD_TOOLS", "OFF");
+    config.define("LLAMA_BUILD_COMMON", "ON");
     config.define("LLAMA_CURL", "OFF");
-
-    if cfg!(feature = "mtmd") {
-        config.define("LLAMA_BUILD_COMMON", "ON");
-        // mtmd support in llama-cpp is within the tools directory
-        config.define("LLAMA_BUILD_TOOLS", "ON");
-    }
 
     // Pass CMAKE_ environment variables down to CMake
     for (key, value) in env::vars() {
         if key.starts_with("CMAKE_") {
             config.define(&key, &value);
+        }
+    }
+
+    // extract the target-cpu config value, if specified
+    let target_cpu = std::env::var("CARGO_ENCODED_RUSTFLAGS")
+        .ok()
+        .and_then(|rustflags| {
+            rustflags
+                .split('\x1f')
+                .find(|f| f.contains("target-cpu="))
+                .and_then(|f| f.split("target-cpu=").nth(1))
+                .map(|s| s.to_string())
+        });
+
+    if target_cpu == Some("native".into()) {
+        debug_log!("Detected target-cpu=native, compiling with GGML_NATIVE");
+        config.define("GGML_NATIVE", "ON");
+    }
+    // if native isn't specified, enable specific features for ggml instead
+    else {
+        // rust code isn't using `target-cpu=native`, so llama.cpp shouldn't use GGML_NATIVE either
+        config.define("GGML_NATIVE", "OFF");
+
+        // if `target-cpu` is set set, also set -march for llama.cpp to the same value
+        if let Some(ref cpu) = target_cpu {
+            debug_log!("Setting baseline architecture: -march={}", cpu);
+            config.cflag(format!("-march={}", cpu));
+            config.cxxflag(format!("-march={}", cpu));
+        }
+
+        // I expect this env var to always be present
+        let features = std::env::var("CARGO_CFG_TARGET_FEATURE")
+            .expect("Env var CARGO_CFG_TARGET_FEATURE not found.");
+        debug_log!("Compiling with target features: {}", features);
+
+        // list of rust target_features here:
+        //   https://doc.rust-lang.org/reference/attributes/codegen.html#the-target_feature-attribute
+        // GGML config flags have been found by looking at:
+        //   llama.cpp/ggml/src/ggml-cpu/CMakeLists.txt
+        for feature in features.split(',') {
+            match feature {
+                "avx" => {
+                    config.define("GGML_AVX", "ON");
+                }
+                "avx2" => {
+                    config.define("GGML_AVX2", "ON");
+                }
+                "avx512bf16" => {
+                    config.define("GGML_AVX512_BF16", "ON");
+                }
+                "avx512vbmi" => {
+                    config.define("GGML_AVX512_VBMI", "ON");
+                }
+                "avx512vnni" => {
+                    config.define("GGML_AVX512_VNNI", "ON");
+                }
+                "avxvnni" => {
+                    config.define("GGML_AVX_VNNI", "ON");
+                }
+                "bmi2" => {
+                    config.define("GGML_BMI2", "ON");
+                }
+                "f16c" => {
+                    config.define("GGML_F16C", "ON");
+                }
+                "fma" => {
+                    config.define("GGML_FMA", "ON");
+                }
+                "sse4.2" => {
+                    config.define("GGML_SSE42", "ON");
+                }
+                _ => {
+                    debug_log!(
+                        "Unrecognized cpu feature: '{}' - skipping GGML config for it.",
+                        feature
+                    );
+                    continue;
+                }
+            };
         }
     }
 
@@ -490,6 +650,10 @@ fn main() {
     config.static_crt(static_crt);
 
     if matches!(target_os, TargetOs::Android) {
+        if cfg!(feature = "shared-stdcxx") && cfg!(feature = "static-stdcxx") {
+            panic!("Features 'shared-stdcxx' and 'static-stdcxx' are mutually exclusive");
+        }
+
         // Android NDK Build Configuration
         let android_ndk = env::var("ANDROID_NDK")
             .or_else(|_| env::var("NDK_ROOT"))
@@ -545,6 +709,15 @@ fn main() {
 
         config.define("ANDROID_ABI", android_abi);
 
+        // Configure C++ standard library linkage for Android.
+        // By default, the NDK toolchain uses c++_shared.
+        // The shared-stdcxx and static-stdcxx features allow explicit control.
+        if cfg!(feature = "static-stdcxx") {
+            config.define("ANDROID_STL", "c++_static");
+        } else if cfg!(feature = "shared-stdcxx") {
+            config.define("ANDROID_STL", "c++_shared");
+        }
+
         // Configure architecture-specific compiler flags
         match android_abi {
             "arm64-v8a" => {
@@ -580,9 +753,9 @@ fn main() {
 
     if matches!(target_os, TargetOs::Linux)
         && target_triple.contains("aarch64")
-        && !env::var(format!("CARGO_FEATURE_{}", "native".to_uppercase())).is_ok()
+        && target_cpu != Some("native".into())
     {
-        // If the native feature is not enabled, we take off the native ARM64 support.
+        // If the target-cpu is not specified as native, we take off the native ARM64 support.
         // It is useful in docker environments where the native feature is not enabled.
         config.define("GGML_NATIVE", "OFF");
         config.define("GGML_CPU_ARM_ARCH", "armv8-a");
@@ -611,6 +784,11 @@ fn main() {
                 config.cxxflag("/FS");
             }
             TargetOs::Linux => {
+                // If we are not using system provided vulkan SDK, add vulkan libs for linking
+                if let Ok(vulkan_path) = env::var("VULKAN_SDK") {
+                    let vulkan_lib_path = Path::new(&vulkan_path).join("lib");
+                    println!("cargo:rustc-link-search={}", vulkan_lib_path.display());
+                }
                 println!("cargo:rustc-link-lib=vulkan");
             }
             _ => (),
@@ -625,6 +803,10 @@ fn main() {
         }
     }
 
+    if cfg!(feature = "rocm") {
+        config.define("GGML_HIP", "ON");
+    }
+
     // Android doesn't have OpenMP support AFAICT and openmp is a default feature. Do this here
     // rather than modifying the defaults in Cargo.toml just in case someone enables the OpenMP feature
     // and tries to build for Android anyway.
@@ -632,6 +814,10 @@ fn main() {
         config.define("GGML_OPENMP", "ON");
     } else {
         config.define("GGML_OPENMP", "OFF");
+    }
+
+    if cfg!(feature = "system-ggml") {
+        config.define("LLAMA_USE_SYSTEM_GGML", "ON");
     }
 
     // General
@@ -642,6 +828,52 @@ fn main() {
 
     let build_dir = config.build();
 
+    // Build mtmd directly with cc::Build, bypassing the cmake tools build.
+    // Using LLAMA_BUILD_TOOLS=ON would pull in all tools (batched-bench, quantize, etc.)
+    // and their CMakeLists.txt files, which are not included in the crate package.
+    if cfg!(feature = "mtmd") {
+        let mtmd_src = llama_src.join("tools/mtmd");
+        let mut mtmd_build = cc::Build::new();
+        mtmd_build
+            .cpp(true)
+            .include(&mtmd_src)
+            .include(&llama_src)
+            .include(llama_src.join("include"))
+            .include(llama_src.join("ggml/include"))
+            .include(llama_src.join("common"))
+            .include(llama_src.join("vendor"))
+            .flag_if_supported("-std=c++17")
+            .flag_if_supported("-Wno-cast-qual")
+            .pic(true);
+
+        if matches!(target_os, TargetOs::Windows(WindowsVariant::Msvc)) {
+            mtmd_build.flag("/std:c++17");
+        }
+
+        // When static-stdcxx is enabled on Android, suppress the cc crate's automatic
+        // C++ stdlib linking (which defaults to c++_shared) so we can link c++_static instead.
+        if matches!(target_os, TargetOs::Android) && cfg!(feature = "static-stdcxx") {
+            mtmd_build.cpp_link_stdlib(None);
+        }
+
+        // Collect all .cpp files in tools/mtmd and its subdirectories
+        for entry in glob(mtmd_src.join("**/*.cpp").to_str().unwrap()).unwrap() {
+            match entry {
+                Ok(path) => {
+                    // Skip CLI / deprecation-warning binaries — we only want the library sources
+                    let filename = path.file_name().unwrap().to_str().unwrap();
+                    if filename == "mtmd-cli.cpp" || filename == "deprecation-warning.cpp" {
+                        continue;
+                    }
+                    mtmd_build.file(&path);
+                }
+                Err(e) => println!("cargo:warning=mtmd glob error: {}", e),
+            }
+        }
+
+        mtmd_build.compile("mtmd");
+    }
+
     // Search paths
     println!("cargo:rustc-link-search={}", out_dir.join("lib").display());
     println!(
@@ -649,6 +881,34 @@ fn main() {
         out_dir.join("lib64").display()
     );
     println!("cargo:rustc-link-search={}", build_dir.display());
+
+    if cfg!(feature = "system-ggml") {
+        // Extract library directory from CMake's found GGML package
+        let cmake_cache = build_dir.join("build").join("CMakeCache.txt");
+        if let Ok(cache_contents) = std::fs::read_to_string(&cmake_cache) {
+            let mut ggml_lib_dirs = std::collections::HashSet::new();
+
+            // Parse CMakeCache.txt to find where GGML libraries were found
+            for line in cache_contents.lines() {
+                if line.starts_with("GGML_LIBRARY:")
+                    || line.starts_with("GGML_BASE_LIBRARY:")
+                    || line.starts_with("GGML_CPU_LIBRARY:")
+                {
+                    if let Some(lib_path) = line.split('=').nth(1) {
+                        if let Some(parent) = Path::new(lib_path).parent() {
+                            ggml_lib_dirs.insert(parent.to_path_buf());
+                        }
+                    }
+                }
+            }
+
+            // Add each unique library directory to the search path
+            for lib_dir in ggml_lib_dirs {
+                println!("cargo:rustc-link-search=native={}", lib_dir.display());
+                debug_log!("Added system GGML library path: {}", lib_dir.display());
+            }
+        }
+    }
 
     if cfg!(feature = "cuda") && !build_shared_libs {
         // Re-run build script if CUDA_PATH environment variable changes
@@ -691,11 +951,75 @@ fn main() {
         }
     }
 
+    if cfg!(feature = "rocm") && !build_shared_libs {
+        // Re-run build script if ROCM_PATH environment variable changes
+        println!("cargo:rerun-if-env-changed=ROCM_PATH");
+        println!("cargo:rerun-if-env-changed=HIP_PATH");
+
+        // Find ROCm installation
+        let rocm_path = env::var("ROCM_PATH")
+            .or_else(|_| env::var("HIP_PATH"))
+            .unwrap_or_else(|_| {
+                if cfg!(target_os = "windows") {
+                    "C:\\Program Files\\AMD\\ROCm".to_string()
+                } else {
+                    "/opt/rocm".to_string()
+                }
+            });
+
+        let rocm_lib = Path::new(&rocm_path).join("lib");
+        if !rocm_lib.exists() {
+            panic!(
+                "ROCm libraries not found at: {}\n\
+                 Please install ROCm or set ROCM_PATH/HIP_PATH environment variable.\n\
+                 Download from: https://rocm.docs.amd.com/",
+                rocm_lib.display()
+            );
+        }
+
+        println!("cargo:rustc-link-search=native={}", rocm_lib.display());
+
+        // Link ROCm libraries
+        println!("cargo:rustc-link-lib=dylib=amdhip64");
+        println!("cargo:rustc-link-lib=dylib=rocblas");
+        println!("cargo:rustc-link-lib=dylib=hipblas");
+    }
+
     // Link libraries
-    let llama_libs_kind = if build_shared_libs { "dylib" } else { "static" };
-    let llama_libs = extract_lib_names(&out_dir, build_shared_libs);
+    let llama_libs_kind = if build_shared_libs
+        || (cfg!(feature = "system-ggml") && !cfg!(feature = "system-ggml-static"))
+    {
+        "dylib"
+    } else {
+        "static"
+    };
+
+    let llama_libs = extract_lib_names(&out_dir, build_shared_libs, &target_os);
+
     assert_ne!(llama_libs.len(), 0);
 
+    let common_lib_dir = out_dir.join("build").join("common");
+    if common_lib_dir.is_dir() {
+        println!(
+            "cargo:rustc-link-search=native={}",
+            common_lib_dir.display()
+        );
+
+        let common_profile_dir = common_lib_dir.join(&profile);
+        if common_profile_dir.is_dir() {
+            println!(
+                "cargo:rustc-link-search=native={}",
+                common_profile_dir.display()
+            );
+        }
+        println!("cargo:rustc-link-lib=static=llama-common");
+    }
+
+    if cfg!(feature = "system-ggml") {
+        println!("cargo:rustc-link-lib={llama_libs_kind}=ggml");
+        println!("cargo:rustc-link-lib={llama_libs_kind}=ggml-base");
+        println!("cargo:rustc-link-lib={llama_libs_kind}=ggml-cpu");
+    }
     for lib in llama_libs {
         let link = format!("cargo:rustc-link-lib={}={}", llama_libs_kind, lib);
         debug_log!("LINK {link}",);
@@ -710,14 +1034,21 @@ fn main() {
     match target_os {
         TargetOs::Windows(WindowsVariant::Msvc) => {
             println!("cargo:rustc-link-lib=advapi32");
+            let crt_static = env::var("CARGO_CFG_TARGET_FEATURE")
+                .unwrap_or_default()
+                .contains("crt-static");
             if cfg!(debug_assertions) {
-                println!("cargo:rustc-link-lib=dylib=msvcrtd");
+                if crt_static {
+                    println!("cargo:rustc-link-lib=libcmtd");
+                } else {
+                    println!("cargo:rustc-link-lib=dylib=msvcrtd");
+                }
             }
         }
         TargetOs::Linux => {
             println!("cargo:rustc-link-lib=dylib=stdc++");
         }
-        TargetOs::Apple(variant) => {
+        TargetOs::Apple(ref variant) => {
             println!("cargo:rustc-link-lib=framework=Foundation");
             println!("cargo:rustc-link-lib=framework=Metal");
             println!("cargo:rustc-link-lib=framework=MetalKit");
@@ -738,12 +1069,22 @@ fn main() {
                 AppleVariant::Other => (),
             }
         }
+        TargetOs::Android => {
+            if cfg!(feature = "static-stdcxx") {
+                println!("cargo:rustc-link-lib=c++_static");
+                println!("cargo:rustc-link-lib=c++abi");
+            } else if cfg!(feature = "shared-stdcxx") {
+                println!("cargo:rustc-link-lib=c++_shared");
+            }
+            // When neither feature is set, the cc crate handles C++ stdlib
+            // linking automatically (defaults to c++_shared on Android).
+        }
         _ => (),
     }
 
     // copy DLLs to target
     if build_shared_libs {
-        let libs_assets = extract_lib_assets(&out_dir);
+        let libs_assets = extract_lib_assets(&out_dir, &target_os);
         for asset in libs_assets {
             let asset_clone = asset.clone();
             let filename = asset_clone.file_name().unwrap();

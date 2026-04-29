@@ -25,16 +25,18 @@ use crate::token::LlamaToken;
 /// let audio_chunk = MtmdInputChunkType::Audio;
 ///
 /// assert_eq!(text_chunk, MtmdInputChunkType::Text);
+/// assert_eq!(text_chunk, llama_cpp_sys::MTMD_INPUT_CHUNK_TYPE_TEXT.into());
 /// assert_ne!(text_chunk, image_chunk);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
 pub enum MtmdInputChunkType {
     /// Text input chunk
-    Text = llama_cpp_sys::MTMD_INPUT_CHUNK_TYPE_TEXT as isize,
+    Text = llama_cpp_sys::MTMD_INPUT_CHUNK_TYPE_TEXT as u32,
     /// Image input chunk
-    Image = llama_cpp_sys::MTMD_INPUT_CHUNK_TYPE_IMAGE as isize,
+    Image = llama_cpp_sys::MTMD_INPUT_CHUNK_TYPE_IMAGE as u32,
     /// Audio input chunk
-    Audio = llama_cpp_sys::MTMD_INPUT_CHUNK_TYPE_AUDIO as isize,
+    Audio = llama_cpp_sys::MTMD_INPUT_CHUNK_TYPE_AUDIO as u32,
 }
 
 impl From<llama_cpp_sys::mtmd_input_chunk_type> for MtmdInputChunkType {
@@ -43,7 +45,7 @@ impl From<llama_cpp_sys::mtmd_input_chunk_type> for MtmdInputChunkType {
             llama_cpp_sys::MTMD_INPUT_CHUNK_TYPE_TEXT => MtmdInputChunkType::Text,
             llama_cpp_sys::MTMD_INPUT_CHUNK_TYPE_IMAGE => MtmdInputChunkType::Image,
             llama_cpp_sys::MTMD_INPUT_CHUNK_TYPE_AUDIO => MtmdInputChunkType::Audio,
-            _ => panic!("Unknown MTMD input chunk type"),
+            _ => panic!("Unknown MTMD input chunk type: {chunk_type}"),
         }
     }
 }
@@ -145,6 +147,10 @@ pub struct MtmdContext {
     pub(crate) context: NonNull<llama_cpp_sys::mtmd_context>,
 }
 
+// MtmdContext is thread safe
+unsafe impl Send for MtmdContext {}
+unsafe impl Sync for MtmdContext {}
+
 impl MtmdContext {
     /// Initialize MTMD context from a multimodal projection file.
     ///
@@ -186,7 +192,9 @@ impl MtmdContext {
     /// Check whether non-causal attention mask is needed before `llama_decode`.
     #[must_use]
     pub fn decode_use_non_causal(&self) -> bool {
-        unsafe { llama_cpp_sys::mtmd_decode_use_non_causal(self.context.as_ptr()) }
+        unsafe {
+            llama_cpp_sys::mtmd_decode_use_non_causal(self.context.as_ptr(), std::ptr::null())
+        }
     }
 
     /// Check whether the current model uses M-RoPE for `llama_decode`.
@@ -210,11 +218,18 @@ impl MtmdContext {
         unsafe { llama_cpp_sys::mtmd_support_audio(self.context.as_ptr()) }
     }
 
-    /// Get audio bitrate in Hz (e.g., 16000 for Whisper).
-    /// Returns -1 if audio is not supported.
+    /// Get audio sample rate in Hz (e.g., 16000 for Whisper).
+    /// Returns None if audio is not supported.
     #[must_use]
-    pub fn get_audio_bitrate(&self) -> i32 {
-        unsafe { llama_cpp_sys::mtmd_get_audio_bitrate(self.context.as_ptr()) }
+    pub fn get_audio_sample_rate(&self) -> Option<u32> {
+        let rate = unsafe { llama_cpp_sys::mtmd_get_audio_sample_rate(self.context.as_ptr()) };
+        (rate > 0).then_some(rate.unsigned_abs())
+    }
+
+    /// Backward-compatible alias for the audio sample rate getter.
+    #[must_use]
+    pub fn get_audio_bitrate(&self) -> Option<u32> {
+        self.get_audio_sample_rate()
     }
 
     /// Tokenize input text and bitmaps into chunks.
@@ -334,6 +349,10 @@ impl Drop for MtmdContext {
 pub struct MtmdBitmap {
     pub(crate) bitmap: NonNull<llama_cpp_sys::mtmd_bitmap>,
 }
+
+// MtmdBitmap is thread safe
+unsafe impl Send for MtmdBitmap {}
+unsafe impl Sync for MtmdBitmap {}
 
 impl MtmdBitmap {
     /// Create a bitmap from image data in RGB format.
@@ -626,15 +645,11 @@ impl MtmdInputChunks {
         let chunk_ptr =
             unsafe { llama_cpp_sys::mtmd_input_chunks_get(self.chunks.as_ptr(), index) };
 
-        if chunk_ptr.is_null() {
-            None
-        } else {
-            // Note: We don't own this chunk, it's owned by the chunks collection
-            Some(MtmdInputChunk {
-                chunk: NonNull::new(chunk_ptr.cast_mut()).unwrap(),
-                owned: false,
-            })
-        }
+        // Note: We don't own this chunk, it's owned by the chunks collection
+        NonNull::new(chunk_ptr.cast_mut()).map(|ptr| MtmdInputChunk {
+            chunk: ptr,
+            owned: false,
+        })
     }
 
     /// Get total number of tokens across all chunks.
@@ -701,7 +716,7 @@ impl MtmdInputChunks {
                 seq_id,
                 n_batch,
                 logits_last,
-                &mut new_n_past,
+                &raw mut new_n_past,
             )
         };
 
@@ -753,7 +768,10 @@ impl MtmdInputChunk {
 
         let mut n_tokens = 0usize;
         let tokens_ptr = unsafe {
-            llama_cpp_sys::mtmd_input_chunk_get_tokens_text(self.chunk.as_ptr(), &mut n_tokens)
+            llama_cpp_sys::mtmd_input_chunk_get_tokens_text(
+                self.chunk.as_ptr(),
+                &raw mut n_tokens,
+            )
         };
 
         if tokens_ptr.is_null() || n_tokens == 0 {

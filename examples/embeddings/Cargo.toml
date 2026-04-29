@@ -2,18 +2,18 @@
 name = "embeddings"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [dependencies]
 llama-cpp = { path = "../../llama-cpp", version = "0.1.0" }
 hf-hub = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 anyhow = { workspace = true }
+encoding_rs = { workspace = true }
 
 [features]
 cuda = ["llama-cpp/cuda"]
-cuda-no-vmm = ["llama-cpp/cuda-no-vmm"]
 metal = ["llama-cpp/metal"]
-native = ["llama-cpp/native"]
 vulkan = ["llama-cpp/vulkan"]
 
 [lints]

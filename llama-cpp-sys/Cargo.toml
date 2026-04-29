@@ -3,9 +3,17 @@ name = "llama-cpp-sys"
 description = "Low Level Bindings to llama.cpp"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/utilityai/llama-cpp-rs"
+links = "llama"
 
 include = [
     "wrapper.h",
+    "wrapper_common.h",
+    "wrapper_common.cpp",
+    "wrapper_oai.h",
+    "wrapper_oai.cpp",
+    "wrapper_utils.h",
     "wrapper_mtmd.h",
     "build.rs",
     "/src",
@@ -19,8 +27,14 @@ include = [
     "/llama.cpp/ggml/src/*.cpp",
     "/llama.cpp/src/*.h",
     "/llama.cpp/src/*.cpp",
+    "/llama.cpp/src/models/*.h",
+    "/llama.cpp/src/models/*.cpp",
     "/llama.cpp/tools/mtmd/*.h",
     "/llama.cpp/tools/mtmd/*.cpp",
+    "/llama.cpp/tools/mtmd/models/*.h",
+    "/llama.cpp/tools/mtmd/models/*.cpp",
+    "/llama.cpp/tools/mtmd/debug/*.h",
+    "/llama.cpp/tools/mtmd/debug/*.cpp",
 
     "/llama.cpp/convert_hf_to_gguf.py", # Yes, it's required
     "/llama.cpp/common/build-info.cpp.in",
@@ -36,6 +50,7 @@ include = [
     "/llama.cpp/ggml/src/ggml-cuda/**/*",
     "/llama.cpp/ggml/src/ggml-metal/**/*",
     "/llama.cpp/ggml/src/ggml-vulkan/**/*",
+    "/llama.cpp/ggml/src/ggml-hip/**/*",
 
     "/llama.cpp/ggml/src/llamafile/sgemm.h",
     "/llama.cpp/ggml/src/llamafile/sgemm.cpp",
@@ -63,7 +78,7 @@ bindgen = { workspace = true }
 cc = { workspace = true, features = ["parallel"] }
 cmake = "0.1"
 find_cuda_helper = "0.2.0"
-glob = "0.3.2"
+glob = "0.3.3"
 walkdir = "2"
 
 [features]
@@ -73,8 +88,11 @@ cuda-no-vmm = ["cuda"]
 metal = []
 dynamic-link = []
 vulkan = []
-native = []
 openmp = []
+rocm = []
 # Only has an impact on Android.
 shared-stdcxx = []
+static-stdcxx = []
+system-ggml = []
+system-ggml-static = ["system-ggml"]
 mtmd = []

@@ -234,53 +234,6 @@ impl<'model> LlamaContext<'model> {
     /// - `n_vocab` does not fit into a usize
     /// - token data returned is null
     #[must_use]
-    pub fn get_all_last_logits(&self, n_seq: usize) -> Vec<&[f32]> {
-        let mut logits = Vec::with_capacity(n_seq);
-        let data = unsafe { llama_cpp_sys::llama_get_logits(self.context.as_ptr()) };
-        assert!(!data.is_null(), "logits data for last token is null");
-
-        let n_vocab =
-            usize::try_from(self.model.n_vocab()).expect("n_vocab does not fit into a usize");
-        let n_output = self.initialized_logits.len();
-
-        let seq_chunk_size = n_vocab
-            .checked_mul(n_output)
-            .expect("n_output * n_vocab does not fit into a usize");
-
-        for i in 0..n_seq {
-            // seq logits start at i * (n_output * n_vocab)
-            let seq_start = i
-                .checked_mul(seq_chunk_size)
-                .expect("i * (n_output * n_vocab) does not fit into a usize");
-            let start = seq_start.checked_add((n_output - 1) * n_vocab).expect(
-                "i * (n_output * n_vocab) + (n_output - 1) * n_vocab does not fit into a usize",
-            );
-            let seq_end = seq_start
-                .checked_add(seq_chunk_size)
-                .expect("start + (n_output * n_vocab) does not fit into a usize");
-            unsafe {
-                logits.push(slice::from_raw_parts(data.add(start), n_vocab));
-            }
-        }
-        logits
-    }
-
-    /// Token logits obtained from the last call to `decode()`.
-    /// The logits for which `batch.logits[i] != 0` are stored contiguously
-    /// in the order they have appeared in the batch.
-    /// Rows: number of tokens for which `batch.logits[i] != 0`
-    /// Cols: `n_vocab`
-    ///
-    /// # Returns
-    ///
-    /// A slice containing the logits for the last decoded token.
-    /// The size corresponds to the `n_vocab` parameter of the context's model.
-    ///
-    /// # Panics
-    ///
-    /// - `n_vocab` does not fit into a usize
-    /// - token data returned is null
-    #[must_use]
     pub fn get_logits(&self) -> &[f32] {
         let data = unsafe { llama_cpp_sys::llama_get_logits(self.context.as_ptr()) };
         assert!(!data.is_null(), "logits data for last token is null");
@@ -325,6 +278,18 @@ impl<'model> LlamaContext<'model> {
     /// - logit `i` is not initialized.
     #[must_use]
     pub fn get_logits_ith(&self, i: i32) -> &[f32] {
+        assert!(
+            self.initialized_logits.contains(&i),
+            "logit {i} is not initialized. only {:?} is",
+            self.initialized_logits
+        );
+        assert!(
+            self.n_ctx() > u32::try_from(i).expect("i does not fit into a u32"),
+            "n_ctx ({}) must be greater than i ({})",
+            self.n_ctx(),
+            i
+        );
+
         let data = unsafe { llama_cpp_sys::llama_get_logits_ith(self.context.as_ptr(), i) };
         let len = usize::try_from(self.model.n_vocab()).expect("n_vocab does not fit into a usize");
 
@@ -352,11 +317,14 @@ impl<'model> LlamaContext<'model> {
         adapter: &mut LlamaLoraAdapter,
         scale: f32,
     ) -> Result<(), LlamaLoraAdapterSetError> {
+        let mut adapters = [adapter.lora_adapter.as_ptr()];
+        let mut scales = [scale];
         let err_code = unsafe {
-            llama_cpp_sys::llama_set_adapter_lora(
+            llama_cpp_sys::llama_set_adapters_lora(
                 self.context.as_ptr(),
-                adapter.lora_adapter.as_ptr(),
-                scale,
+                adapters.as_mut_ptr(),
+                1,
+                scales.as_mut_ptr(),
             )
         };
         if err_code != 0 {
@@ -367,19 +335,24 @@ impl<'model> LlamaContext<'model> {
         Ok(())
     }
 
-    /// Remove a lora adapter.
+    /// Remove all lora adapters.
+    ///
+    /// Note: The upstream API now replaces all adapters at once via
+    /// `llama_set_adapters_lora`. This clears all adapters from the context.
     ///
     /// # Errors
     ///
     /// See [`LlamaLoraAdapterRemoveError`] for more information.
     pub fn lora_adapter_remove(
         &self,
-        adapter: &mut LlamaLoraAdapter,
+        _adapter: &mut LlamaLoraAdapter,
     ) -> Result<(), LlamaLoraAdapterRemoveError> {
         let err_code = unsafe {
-            llama_cpp_sys::llama_rm_adapter_lora(
+            llama_cpp_sys::llama_set_adapters_lora(
                 self.context.as_ptr(),
-                adapter.lora_adapter.as_ptr(),
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
             )
         };
         if err_code != 0 {
@@ -389,6 +362,7 @@ impl<'model> LlamaContext<'model> {
         tracing::debug!("Remove lora adapter");
         Ok(())
     }
+
 }
 
 impl Drop for LlamaContext<'_> {

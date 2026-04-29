@@ -2,6 +2,7 @@
 name = "reranker"
 version = "0.1.86"
 edition = "2021"
+publish = false
 
 [dependencies]
 llama-cpp = { path = "../../llama-cpp", version = "0.1.0" }
@@ -12,9 +13,7 @@ encoding_rs = { workspace = true }
 
 [features]
 cuda = ["llama-cpp/cuda"]
-cuda-no-vmm = ["llama-cpp/cuda-no-vmm"]
 metal = ["llama-cpp/metal"]
-native = ["llama-cpp/native"]
 vulkan = ["llama-cpp/vulkan"]
 
 [lints]
