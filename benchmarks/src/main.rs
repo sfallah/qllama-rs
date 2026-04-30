@@ -6,82 +6,50 @@
     clippy::cast_sign_loss
 )]
 
-use std::fs;
-use std::io::Write;
-use std::num::NonZeroU32;
-use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 
-use llama_cpp::context::params::{LlamaContextParams, LlamaPoolingType};
-use llama_cpp::context::LlamaContext;
+use llama_cpp::context::params::LlamaPoolingType;
 use llama_cpp::ggml_time_us;
-use llama_cpp::llama_backend::LlamaBackend;
-use llama_cpp::llama_batch::LlamaBatch;
-use llama_cpp::model::params::LlamaModelParams;
-use llama_cpp::model::LlamaModel;
-use llama_cpp::model::{AddBos, Special};
-use llama_cpp_rs_bench::split_data::QuerySummaries;
+use llama_cpp::model::AddBos;
+use llama_cpp_rs_bench::{
+    build_simple_reranker_prompts, ensure_hf_model_file, init_backend, init_model,
+    init_reranker_context, load_query_summaries, rerank_token_batches,
+};
 
 fn main() -> Result<()> {
     // init LLM
-    let backend = LlamaBackend::init()?;
+    let backend = init_backend(true)?;
 
-    // offload all layers to the gpu
-    let model_params = if cfg!(any(feature = "cuda", feature = "metal")) {
-        LlamaModelParams::default().with_n_gpu_layers(1000)
-    } else {
-        LlamaModelParams::default()
-    };
+    //let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf";
+    //let model_path = "models/jina-reranker-v1-tiny-en-q4_k_m.gguf";
+    //let model_path = "models/jina-reranker-v1-tiny-en-FP16.gguf";
+    let model_path = ensure_hf_model_file(
+        "sabafallah/bge-reranker-base-Q4_K_M-GGUF",
+        "bge-reranker-base-q4_k_m.gguf",
+        None,
+    )?;
+    //let model_path = "models/bge-m3-q4_k_m.gguf";
+    //let model_path = "models/bge-reranker-v2-m3-f16.gguf";
 
-    //let model_path = PathBuf::from("models/bge-reranker-v2-m3-q4_k_m.gguf");
-    //let model_path = PathBuf::from("models/jina-reranker-v1-tiny-en-q4_k_m.gguf");
-    //let model_path = PathBuf::from("models/jina-reranker-v1-tiny-en-FP16.gguf");
-    let model_path = PathBuf::from("./models/bge-reranker-base-q4_k_m.gguf");
-    //let model_path = PathBuf::from("models/bge-m3-q4_k_m.gguf");
-    //let model_path = PathBuf::from("models/bge-reranker-v2-m3-f16.gguf");
-
-    let model = LlamaModel::load_from_file(&backend, model_path, &model_params)
-        .with_context(|| "unable to load model")?;
-    // println!("pooling: {}", pooling);
+    let model = init_model(&model_path, &backend).with_context(|| "unable to load model")?;
     let pooling_type = LlamaPoolingType::Rank;
 
     println!("###### pooling_type: {:?}", pooling_type);
 
     let max_tokens = 4096;
-    let ctx_params = LlamaContextParams::default()
-        .with_n_threads_batch(std::thread::available_parallelism()?.get().try_into()?)
-        .with_embeddings(true)
-        .with_pooling_type(pooling_type)
-        .with_n_ctx(NonZeroU32::new(max_tokens))
-        .with_n_ubatch(max_tokens)
-        .with_n_batch(max_tokens);
-    println!("ctx_params: {:?}", ctx_params);
-    let mut ctx = model
-        .new_context(&backend, ctx_params)
+    let mut ctx = init_reranker_context(&model, &backend, max_tokens, Some(pooling_type))
         .with_context(|| "unable to create the llama_context")?;
 
-    let n_embd = model.n_embd();
+    let _n_embd = model.n_embd();
 
     let data_path = "tests/test_data/bert_paper_query_summaries.json";
-    let input_str = fs::read_to_string(data_path)?;
-    let query_summaries = serde_json::from_str::<QuerySummaries>(&input_str)?;
+    let query_summaries = load_query_summaries(data_path)?;
     let query = query_summaries.query;
     let documents = query_summaries.summaries;
 
-    let eos = "</s>";
-    let sep = "</s>";
-    let bos = "<s>";
-
-    let prompt_lines = {
-        let mut lines = Vec::new();
-        for doc in &documents {
-            // Todo!  update to get eos and sep from model instead of hardcoding
-            lines.push(format!("{bos}{query}{eos}{sep}{doc}{eos}"));
-        }
-        lines
-    };
+    let prompt_lines = build_simple_reranker_prompts(&query, &documents);
 
     // tokenize the prompt
     let tokens_lines_list = prompt_lines
@@ -96,38 +64,15 @@ fn main() -> Result<()> {
         bail!("One of the provided prompts exceeds the size of the context window");
     }
 
-    // print the prompt token-by-token
-    eprintln!();
-
-    std::io::stderr().flush()?;
-
-    // create a llama_batch with the size of the context
-    // we use this object to submit token data for decoding
-    let mut batch = LlamaBatch::new(max_tokens as usize, 0, 1);
-
-    // Todo!  update to get n_embd  to init vector size for better memory management
-    // let mut n_embd_count = if pooling == "none" {
-    //     tokens_lines_list.iter().map(|tokens| tokens.len()).sum()
-    // } else {
-    //     tokens_lines_list.len()
-    // };
-    let mut output = Vec::with_capacity(tokens_lines_list.len());
-
     let t_main_start = ggml_time_us();
 
-    for tokens in &tokens_lines_list {
-        // Flush the batch if the next prompt would exceed our batch size
-        batch.add_sequence(tokens, 0, false)?;
-        batch_decode(
-            &mut ctx,
-            &mut batch,
-            1,
-            &mut output,
-            true,
-            "rank".to_string(),
-        )?;
-        batch.clear();
-    }
+    let output = rerank_token_batches(
+        &mut ctx,
+        &tokens_lines_list,
+        max_tokens as usize,
+        true,
+        "rank",
+    )?;
 
     let t_main_end = ggml_time_us();
 
@@ -157,81 +102,4 @@ fn main() -> Result<()> {
     println!("{}", ctx.timings());
 
     Ok(())
-}
-
-fn batch_decode(
-    ctx: &mut LlamaContext,
-    batch: &mut LlamaBatch,
-    s_batch: i32,
-    output: &mut Vec<Vec<f32>>,
-    normalise: bool,
-    pooling: String,
-) -> Result<()> {
-    eprintln!(
-        "{}: n_tokens = {}, n_seq = {}",
-        stringify!(batch_decode),
-        batch.n_tokens(),
-        s_batch
-    );
-
-    // Clear previous kv_cache values
-    ctx.clear_kv_cache();
-
-    ctx.decode(batch).with_context(|| "llama_decode() failed")?;
-
-    for i in 0..s_batch {
-        let embeddings = ctx
-            .embeddings_seq_ith(i)
-            .with_context(|| "Failed to get sequence embeddings")?;
-        let normalized = if normalise {
-            if pooling == "rank" {
-                normalize_embeddings(&embeddings, -1)
-            } else {
-                normalize_embeddings(&embeddings, 2)
-            }
-        } else {
-            embeddings.to_vec()
-        };
-        output.push(normalized);
-    }
-
-    batch.clear();
-
-    Ok(())
-}
-
-/// Normalizes embeddings based on different normalization strategies
-fn normalize_embeddings(input: &[f32], embd_norm: i32) -> Vec<f32> {
-    let n = input.len();
-    let mut output = vec![0.0; n];
-
-    let sum = match embd_norm {
-        -1 => 1.0, // no normalization
-        0 => {
-            // max absolute
-            let max_abs = input.iter().map(|x| x.abs()).fold(0.0f32, f32::max) / 32760.0;
-            max_abs as f64
-        }
-        2 => {
-            // euclidean norm
-            input
-                .iter()
-                .map(|x| (*x as f64).powi(2))
-                .sum::<f64>()
-                .sqrt()
-        }
-        p => {
-            // p-norm
-            let sum = input.iter().map(|x| (x.abs() as f64).powi(p)).sum::<f64>();
-            sum.powf(1.0 / p as f64)
-        }
-    };
-
-    let norm = if sum > 0.0 { 1.0 / sum } else { 0.0 };
-
-    for i in 0..n {
-        output[i] = (input[i] as f64 * norm) as f32;
-    }
-
-    output
 }

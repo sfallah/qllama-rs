@@ -1,30 +1,18 @@
 mod tetes {
     use anyhow::{bail, Context, Result};
     use candle_core::{Device, Tensor};
-    use fast_text_splitter::config::SplitterLiteConfig;
-    use fast_text_splitter::hf_tokenizer::HFTokenizer;
-    use fast_text_splitter::splitter::split_node::utils::SplitResultLite;
     use llama_cpp::context::params::LlamaPoolingType;
-    use llama_cpp::context::LlamaContext;
-    use llama_cpp::llama_batch::LlamaBatch;
-    use llama_cpp::model::{AddBos, LlamaModel, Special};
+    use llama_cpp::model::AddBos;
     use llama_cpp::token::LlamaToken;
-    use llama_cpp_rs_bench::split_data::{QuerySummaries, SplitData, SummaryData};
+    use llama_cpp_rs_bench::split_data::QuerySummaries;
     use llama_cpp_rs_bench::{
-        batch_decode_rerank, batch_decode_rerank_last, get_embeddings, init_backend, init_context,
-        init_model, init_reranker_context, init_splitter, llama_cpp_tokenize, process_batch,
-        process_splits_batch, SentenceScore,
+        build_simple_reranker_prompts, ensure_hf_model_file, init_backend, init_context,
+        init_model, init_model_multi, init_reranker_context,
+        load_query_summaries, process_splits_batch, rerank_last_token_batches,
+        rerank_token_batches, SentenceScore,
     };
-    use rayon::prelude::*;
+    use serial_test::serial;
     use std::fs;
-    use std::path::Path;
-
-    fn ensure_dir_exists(dir_path: &str) -> std::io::Result<()> {
-        if !Path::new(dir_path).exists() {
-            fs::create_dir_all(dir_path)?;
-        }
-        Ok(())
-    }
 
     pub fn normalize_l2(ts: &Tensor) -> anyhow::Result<Tensor> {
         Ok(ts.broadcast_div(&ts.sqr()?.sum_keepdim(1)?.sqrt()?)?)
@@ -42,317 +30,24 @@ mod tetes {
         Ok(embeds1_normed.matmul(&embeds2_normed.transpose(0, 1)?)?)
     }
 
-    fn text_file_embeddings(
-        model_path: &str,
-        text_file_path: &str,
-        out_dir: &str,
-        hf_model: Option<String>,
-        model_instruct: Option<&str>,
-        n_ctx: Option<u32>,
-        n_batch: Option<u32>,
-        n_ubatch: Option<u32>,
-    ) -> Result<()> {
-        let backend = init_backend(false)?;
-        let model = init_model(&model_path, &backend)?;
-        let mut ctx = init_context(&model, &backend, n_ctx, n_batch, n_ubatch)?;
-
-        let n_ctx = ctx.n_ctx() as usize;
-
-        let split_splitter = init_splitter(hf_model.clone(), None, Some(400), true)?;
-        let sentence_splitter = init_splitter(hf_model, None, Some(400), false)?;
-
-        let device = Device::Cpu;
-
-        // chech if out_dir exists if not create it
-        ensure_dir_exists(out_dir)?;
-
-        let data_path = text_file_path;
-        let binding = fs::read_to_string(data_path)?;
-        let data = binding.as_bytes();
-
-        let mx_tokens_splits = split_splitter.hf_splits(data);
-
-        let mut splits_data = Vec::new();
-
-        mx_tokens_splits
-            .iter()
-            .enumerate()
-            .for_each(|(split_id, mx_tokens_split)| {
-                process_split_data(
-                    out_dir,
-                    &mut ctx,
-                    n_ctx,
-                    &sentence_splitter,
-                    &device,
-                    &mut splits_data,
-                    split_id,
-                    mx_tokens_split,
-                    model_instruct,
-                );
-            });
-
-        // save splits data json
-        let splits_data_json = serde_json::to_string_pretty(&splits_data)?;
-        let splits_data_file = format!("{}/splits_data.json", out_dir);
-        fs::write(splits_data_file, splits_data_json)?;
-
-        Ok(())
-    }
-
-    fn json_file_embeddings(
-        model_path: &str,
-        json_file_path: &str,
-        out_dir: &str,
-        hf_model: Option<String>,
-    ) -> Result<()> {
-        let backend = init_backend(true)?;
-        let model = init_model(&model_path, &backend)?;
-        let mut ctx = init_context(&model, &backend, Some(4096), None, None)?;
-
-        let n_ctx = ctx.n_ctx() as usize;
-
-        let split_splitter = init_splitter(hf_model.clone(), None, Some(4096), true)?;
-        let sentence_splitter = init_splitter(hf_model, None, Some(4096), false)?;
-
-        let device = Device::Cpu;
-
-        let text_out_dir = format!("{}/text", out_dir);
-        ensure_dir_exists(text_out_dir.as_str())?;
-
-        let input_str = fs::read_to_string(json_file_path)?;
-        let inputs_vec: Vec<SummaryData> = serde_json::from_str(&input_str)?;
-
-        let mx_tokens_splits = inputs_vec
-            .clone()
-            .into_iter()
-            .flat_map(|input| {
-                let data = input.text.as_bytes();
-                split_splitter.hf_splits(data)
-            })
-            .collect::<Vec<SplitResultLite>>();
-
-        let mut splits_data = Vec::new();
-
-        mx_tokens_splits
-            .iter()
-            .enumerate()
-            .for_each(|(split_id, mx_tokens_split)| {
-                process_split_data(
-                    text_out_dir.as_str(),
-                    &mut ctx,
-                    n_ctx,
-                    &sentence_splitter,
-                    &device,
-                    &mut splits_data,
-                    split_id,
-                    mx_tokens_split,
-                    None,
-                );
-            });
-
-        // save splits data json
-        let splits_data_json = serde_json::to_string_pretty(&splits_data)?;
-        let splits_data_file = format!("{}/splits_data.json", text_out_dir);
-        fs::write(splits_data_file, splits_data_json)?;
-
-        let summary_out_dir = format!("{}/summary", out_dir);
-        ensure_dir_exists(summary_out_dir.as_str())?;
-
-        let mx_tokens_splits = inputs_vec
-            .into_iter()
-            .flat_map(|input| {
-                let data = input.summary.as_bytes();
-                split_splitter.hf_splits(data)
-            })
-            .collect::<Vec<SplitResultLite>>();
-
-        let mut splits_data = Vec::new();
-        mx_tokens_splits
-            .iter()
-            .enumerate()
-            .for_each(|(split_id, mx_tokens_split)| {
-                process_split_data(
-                    summary_out_dir.as_str(),
-                    &mut ctx,
-                    n_ctx,
-                    &sentence_splitter,
-                    &device,
-                    &mut splits_data,
-                    split_id,
-                    mx_tokens_split,
-                    None,
-                );
-            });
-
-        // save splits data json
-        let splits_data_json = serde_json::to_string_pretty(&splits_data)?;
-        let splits_data_file = format!("{}/splits_data.json", summary_out_dir);
-        fs::write(splits_data_file, splits_data_json)?;
-
-        Ok(())
-    }
-
-    fn process_split_data(
-        out_dir: &str,
-        mut ctx: &mut LlamaContext,
-        n_ctx: usize,
-        sentence_splitter: &SplitterLiteConfig<HFTokenizer>,
-        device: &Device,
-        mut splits_data: &mut Vec<SplitData>,
-        split_id: usize,
-        mx_tokens_split: &SplitResultLite,
-        model_instruct: Option<&str>,
-    ) {
-        let split_id_str = format!("{:03}", split_id);
-
-        let input = model_instruct.map_or_else(
-            || mx_tokens_split.split_string.clone(),
-            |instruct| format!("{}{}", instruct, mx_tokens_split.split_string),
-        );
-
-        let llama_tokens =
-            llama_cpp_tokenize(&ctx.model, input.as_str()).expect("unable to tokenize");
-        let mut split_embedding_vec = Vec::new();
-        get_embeddings(&llama_tokens, &mut split_embedding_vec, &mut ctx, n_ctx)
-            .expect("embeddings failed");
-
-        let split_embedding_tensor =
-            Tensor::new(split_embedding_vec, &device).expect("unable to create tensor");
-        let split_embedding_name = format!("split_embedding_{}", split_id_str);
-        let split_embedding_file = format!("{}.safetensors", split_embedding_name);
-        let split_embedding_path = format!("{}/{}", out_dir, split_embedding_file);
-
-        split_embedding_tensor
-            .save_safetensors(split_embedding_name.as_str(), split_embedding_path.as_str())
-            .expect("unable to save tensors");
-
-        let sentence_splits = sentence_splitter.hf_splits(mx_tokens_split.split_string.as_bytes());
-
-        let sentence_splits_strs = sentence_splits
-            .iter()
-            .filter(|sentence_split| sentence_split.tokens.len() > 0)
-            .map(|sentence_split| sentence_split.split_string.clone())
-            .collect::<Vec<String>>();
-
-        let llama_tokens_list: Vec<Vec<LlamaToken>> = sentence_splits_strs
-            .iter()
-            .map(|sentence_str| {
-                let llama_tokens = llama_cpp_tokenize(&ctx.model, sentence_str)
-                    .expect("unable to convert to llama tokens");
-                llama_tokens
-            })
-            .collect();
-        let embds = process_batch(&mut ctx, &llama_tokens_list).expect("unable to process batch");
-        let tensors = Tensor::new(embds, &device).expect("unable to create tensor");
-
-        let sentence_embeddings_name = format!("sentence_embeddings_{}", split_id_str);
-        let sentence_embeddings_file = format!("{}.safetensors", sentence_embeddings_name);
-        let sentence_embeddings_path = format!("{}/{}", out_dir, sentence_embeddings_file);
-
-        let split_data = SplitData {
-            split_id,
-            no_tokens: mx_tokens_split.tokens.len(),
-            split_embedding_name: split_embedding_name.clone(),
-            split_embedding_file: split_embedding_file.clone(),
-            split_string: mx_tokens_split.split_string.clone(),
-            sentence_embeddings_name: sentence_embeddings_name.clone(),
-            sentence_embeddings_file: sentence_embeddings_file.clone(),
-            sentences: sentence_splits_strs.clone(),
-        };
-        splits_data.push(split_data);
-
-        tensors
-            .save_safetensors(
-                sentence_embeddings_name.as_str(),
-                sentence_embeddings_path.as_str(),
-            )
-            .expect("unable to save tensors");
-    }
-
     #[test]
-    fn test_text_file_embeddings() -> Result<()> {
-        //let out_dir = "output/superlinear_embeddings/snowflake-arctic-embed-m-v1.5";
-        //let out_dir = "output/superlinear_embeddings/bge-reranker-v2";
-        //let out_dir = "output/superlinear_embeddings/gte-Qwen2-1.5B-instruct";
-        //let out_dir = "output/superlinear_embeddings/multilingual-e5-large-instruct";
-        //let out_dir = "output/superlinear_embeddings/bge-large-en";
-        //let out_dir = "output/superlinear_embeddings/bge-m3";
-        //let out_dir = "output/United_States/bge-m3";
-        let out_dir = "output/bert_paper/bge-m3";
-        //let out_dir = "output/superlinear_embeddings/all-MiniLM-L6-v2_new";
-        let out_dir = "output/superlinear_embeddings/embeddinggemma";
-
-        //let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf";
-        //let model_path ="models/multilingual-e5-large-instruct-q8_0.gguf";
-        //let model_path = "models/bge-large-en-v1.5-q8_0.gguf";
-        let model_path = "models/bge-m3-q4_k_m.gguf";
-        let model_path = "models/embeddinggemma-300m-q4_k_m.gguf";
-        //let model_path = "models/gemma-2-9b-it-Q4_K_M.gguf";
-        //let model_path = "models/snowflake-arctic-embed-m-v1.5-q4_k_m.gguf";
-        //let model_path = "models/gte-qwen2-1.5b-instruct-q4_k_m.gguf";
-        //let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf";
-
-        //let text_file_path = "tests/test_data/United_States.txt";
-        let text_file_path = "tests/test_data/superlinear.txt";
-        //let text_file_path = "tests/test_data/bert_paper.txt";
-
-        //let hf_model = Some("sentence-transformers/all-MiniLM-L6-v2".to_string());
-        //let hf_model = Some("Snowflake/snowflake-arctic-embed-m-v1.5".to_string());
-        //let hf_model = Some("Alibaba-NLP/gte-Qwen2-1.5B-instruct".to_string());
-        //let hf_model = Some("intfloat/multilingual-e5-large-instruct".to_string());
-        //let hf_model = Some("BAAI/bge-large-en-v1.5".to_string());
-        let hf_model = Some("BAAI/bge-m3".to_string());
-        let hf_model = Some("google/embeddinggemma-300m".to_string());
-        //let hf_model = Some("google/gemma-2-9b-it".to_string());
-        //let hf_model = Some("BAAI/bge-reranker-v2-m3".to_string());
-        let max_tokens = Some(512);
-        let n_batch = Some(512);
-        //let model_instruct = Some("Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:");
-        let model_instruct = None;
-        text_file_embeddings(
-            &model_path,
-            text_file_path,
-            out_dir,
-            hf_model,
-            model_instruct,
-            max_tokens,
-            n_batch,
-            n_batch,
-        )
-    }
-
-    #[test]
-    fn test_json_file_embeddings() -> Result<()> {
-        let out_dir = "output/gold_extractive/bge-m3";
-        let model_path = "models/bge-m3-q4_k_m.gguf";
-        let json_file_path = "tests/test_data/gold_extractive.json";
-        let hf_model = Some("BAAI/bge-m3".to_string());
-        json_file_embeddings(&model_path, json_file_path, out_dir, hf_model)
-    }
-
-    #[test]
+    #[serial(model)]
     fn test() -> Result<()> {
-        //let model_path = "models/all-MiniLM-L6-v2-Q4_K_M.gguf".to_string();
-        //let model_path = "models/snowflake-arctic-embed-m-v1.5-q4_k_m.gguf".to_string();
-        //let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf".to_string();
+        let model_path = ensure_hf_model_file(
+            "sabafallah/embeddinggemma-300m-sentence-transformers-gguf",
+            "embeddinggemma-300m-sentence-transformers-q8_0.gguf",
+            None,
+        )?;
 
-        //let model_path = "models/all-MiniLM-L6-v2-ggml-model-f16.gguf".to_string();
-        //let model_path = "models/multilingual-e5-large-instruct-q4_k_m.gguf".to_string();
-
-        //let model_path = "models/Qwen3-Embedding-0.6B-Q8_0.gguf".to_string();
-        //let model_path = "models/embeddinggemma-300m-q4_k_m.gguf".to_string();
-        //let model_path = "models/embeddinggemma-300m-f16.gguf".to_string();
-        //let model_path = "models/embeddinggemma-300M-BF16.gguf".to_string();
-        //let model_path = "models/embeddinggemma-300m-with-st-denses-Q4_K_M.gguf".to_string();
-        let model_path = "models/embeddinggemma-300m-sentence-transformers-qat-q4_0.gguf".to_string();
-
-
-
+        let n_ctx = 2048;
 
         let backend = init_backend(true)?;
-        let model = init_model(&model_path, &backend)?;
+        let models = init_model_multi(&model_path, &backend, 4);
+        let model = models.get(0).unwrap().as_ref().unwrap();
+
         //let mut ctx = init_context(&model, &backend, Some(3072), Some(3072), Some(3072))?;
-        let mut ctx = init_context(&model, &backend, None, None, None)?;
+        let mut ctx = init_context(model, &backend, Some(n_ctx), Some(n_ctx), Some(n_ctx))?;
+        //let mut ctx = init_context(&model, &backend, None, None, None)?;
 
         let sentences1 = [
             "The new movie is awesome",
@@ -363,10 +58,9 @@ mod tetes {
         let sentences1 = sentences1.map(|s| s.to_string()).to_vec();
         let gemma_prompt = "task: sentence similarity | query: ";
 
-
         println!("----------------------------------");
         for s in sentences1.iter() {
-            println!("{}",s);
+            println!("{}", s);
         }
         println!("----------------------------------");
 
@@ -376,15 +70,12 @@ mod tetes {
             .collect::<Vec<String>>();
 
         for prompt in sentences1_prompts.iter() {
-            println!("{}",prompt);
+            println!("{}", prompt);
         }
 
         println!("----------------------------------");
 
-        let embeddings1 = process_splits_batch(&model, &mut ctx, &sentences1_prompts)?;
-
-        let cache_used = ctx.get_kv_cache_used_cells(0);
-        println!("cache_used: {}", cache_used);
+        let embeddings1 = process_splits_batch(model, &mut ctx, &sentences1_prompts)?;
 
         let embeddings1_ts = Tensor::new(embeddings1, &Device::Cpu)?;
 
@@ -398,7 +89,7 @@ mod tetes {
         let sentences2 = sentences2.map(|s| s.to_string()).to_vec();
         println!("----------------------------------");
         for s in sentences2.iter() {
-            println!("{}",s);
+            println!("{}", s);
         }
 
         let sentences2_prompts = sentences2
@@ -407,10 +98,10 @@ mod tetes {
             .collect::<Vec<String>>();
 
         for prompt in sentences2_prompts.iter() {
-            println!("{}",prompt);
+            println!("{}", prompt);
         }
         println!("----------------------------------");
-        let embeddings2 = process_splits_batch(&model, &mut ctx, &sentences2_prompts)?;
+        let embeddings2 = process_splits_batch(model, &mut ctx, &sentences2_prompts)?;
 
         let embeddings2_ts = Tensor::new(embeddings2, &Device::Cpu)?;
 
@@ -437,44 +128,6 @@ mod tetes {
         Ok(())
     }
     
-    fn common_sim_matrix(embeds1: &Vec<Vec<f32>>, embeds2: &Vec<Vec<f32>>) -> Vec<Vec<f64>> {
-        let mut sim_matrix = Vec::new();
-        for embd1 in embeds1.iter() {
-            let mut sim_row = Vec::new();
-            for embd2 in embeds2.iter() {
-                let sim = common_embd_similarity_cos(embd1, embd2);
-                sim_row.push(sim);
-            }
-            sim_matrix.push(sim_row);
-        }
-        sim_matrix
-    }
-
-    fn common_embd_similarity_cos(embd1: &[f32], embd2: &[f32]) -> f64 {
-        assert_eq!(embd1.len(), embd2.len());
-        let n = embd1.len();
-
-        let mut sum: f64 = 0.0;
-        let mut sum1: f64 = 0.0;
-        let mut sum2: f64 = 0.0;
-
-        for i in 0..n {
-            sum += embd1[i] as f64 * embd2[i] as f64;
-            sum1 += embd1[i] as f64 * embd1[i] as f64;
-            sum2 += embd2[i] as f64 * embd2[i] as f64;
-        }
-
-        // Handle the case where one or both vectors are zero vectors
-        if sum1 == 0.0 || sum2 == 0.0 {
-            if sum1 == 0.0 && sum2 == 0.0 {
-                return 1.0f64; // two zero vectors are similar
-            }
-            return 0.0f64; // one zero vector is dissimilar to any non-zero vector
-        }
-
-        sum / (sum1.sqrt() * sum2.sqrt())
-    }
-
     #[test]
     fn query_summaries_data() -> Result<()> {
         let json_file_path = "tests/test_data/bert_paper_query_summaries.json";
@@ -490,38 +143,24 @@ mod tetes {
     }
 
     #[test]
+    #[serial(model)]
     fn bge_reranker_test() -> Result<()> {
-        let json_file_path = "tests/test_data/bert_paper_query_summaries.json";
-        let input_str = fs::read_to_string(json_file_path)?;
-        let query_summaries = serde_json::from_str::<QuerySummaries>(&input_str)?;
+        let query_summaries =
+            load_query_summaries("tests/test_data/bert_paper_query_summaries.json")?;
 
-        let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf";
-        //let model_path = "models/qwen3-reranker-0.6b-q4_k_m.gguf";
-        //let model_path = "models/Qwen3-Reranker-0.6B.f16.gguf";
-        //let model_path = "/Users/sabafallah/dev/qimia_ai_dev/ngxson.llama.cpp/gguf_models/qwen3-gguf/qwen3-reranker-0.6b-my-xsn.gguf";
+        let model_path = ensure_hf_model_file(
+            "sabafallah/bge-reranker-v2-m3-Q4_K_M-GGUF",
+            "bge-reranker-v2-m3-Q4_K_M.gguf",
+            None,
+        )?;
         let backend = init_backend(true)?;
-        let model = init_model(model_path, &backend)?;
+        let model = init_model(&model_path, &backend)?;
         let max_tokens = 2048;
         let pooling_type = Some(LlamaPoolingType::Rank);
         let mut ctx = init_reranker_context(&model, &backend, max_tokens, pooling_type)?;
 
-        let eos = "</s>";
-        let sep = "</s>";
-        let bos = "<s>";
-
-        let bos_token = model.token_bos();
-        let eos_token = model.token_eos();
-        let sep_token = model.token_sep();
-
-        let prompt_lines = {
-            let query = query_summaries.query;
-            let mut lines = Vec::new();
-            for summary in &query_summaries.summaries {
-                // Todo!  update to get eos and sep from model instead of hardcoding
-                lines.push(format!("{bos}{query}{eos}{sep}{summary}{eos}"));
-            }
-            lines
-        };
+        let prompt_lines =
+            build_simple_reranker_prompts(&query_summaries.query, &query_summaries.summaries);
 
         // tokenize the prompt
         let tokens_lines_list = prompt_lines
@@ -536,41 +175,12 @@ mod tetes {
             bail!("One of the provided prompts exceeds the size of the context window");
         }
 
-        let n_embd = model.n_embd();
-
-        // create a llama_batch with the size of the context
-        // we use this object to submit token data for decoding
-        let mut batch = LlamaBatch::new(max_tokens as usize, 0, 1);
-
-        let mut max_seq_id_batch = 0;
-        let mut output = Vec::with_capacity(tokens_lines_list.len());
-        let normalise = true;
-        for tokens in &tokens_lines_list {
-            // Flush the batch if the next prompt would exceed our batch size
-            if (batch.n_tokens() as usize + tokens.len()) > max_tokens as usize {
-                batch_decode_rerank(
-                    &mut ctx,
-                    &mut batch,
-                    max_seq_id_batch,
-                    &mut output,
-                    normalise,
-                    "rank".to_string(),
-                )?;
-                max_seq_id_batch = 0;
-                batch.clear();
-            }
-
-            batch.add_sequence(tokens, max_seq_id_batch, false)?;
-            max_seq_id_batch += 1;
-        }
-        // Handle final batch
-        batch_decode_rerank(
+        let output = rerank_token_batches(
             &mut ctx,
-            &mut batch,
-            max_seq_id_batch,
-            &mut output,
-            normalise,
-            "rank".to_string(),
+            &tokens_lines_list,
+            max_tokens as usize,
+            true,
+            "rank",
         )?;
 
         let scores = output
@@ -591,39 +201,32 @@ mod tetes {
     }
 
     #[test]
+    #[serial(model)]
     fn bge_reranker_simple_test() -> Result<()> {
-        let model_path = "models/bge-reranker-v2-m3-q4_k_m.gguf";
+        let model_path = ensure_hf_model_file(
+            "sabafallah/bge-reranker-v2-m3-Q4_K_M-GGUF",
+            "bge-reranker-v2-m3-q4_k_m.gguf",
+            None,
+        )?;
         let backend = init_backend(true)?;
-        let model = init_model(model_path, &backend)?;
+        let model = init_model(&model_path, &backend)?;
         let max_tokens = 2048;
         let pooling_type = Some(LlamaPoolingType::Rank);
         let mut ctx = init_reranker_context(&model, &backend, max_tokens, pooling_type)?;
 
-        let eos = "</s>";
-        let sep = "</s>";
-        let bos = "<s>";
-
-        let bos_token = model.token_bos();
-        let eos_token = model.token_eos();
-        let sep_token = model.token_sep();
-
         let query = "What is machine learning?";
-        let documents = [
+        let documents = vec![
             "Angela Merkel was the Chancellor of Germany",
             "Pizza is made with tomatoes and cheese",
             "Deep learning uses neural networks...",
             "The weather today is sunny and warm",
             "Machine learning is a subset of artificial intelligence",
-        ];
+        ]
+        .into_iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<String>>();
 
-        let prompt_lines = {
-            let mut lines = Vec::new();
-            for doc in &documents {
-                // Todo!  update to get eos and sep from model instead of hardcoding
-                lines.push(format!("{bos}{query}{eos}{sep}{doc}{eos}"));
-            }
-            lines
-        };
+        let prompt_lines = build_simple_reranker_prompts(query, &documents);
 
         // tokenize the prompt
         let tokens_lines_list = prompt_lines
@@ -638,41 +241,12 @@ mod tetes {
             bail!("One of the provided prompts exceeds the size of the context window");
         }
 
-        let n_embd = model.n_embd();
-
-        // create a llama_batch with the size of the context
-        // we use this object to submit token data for decoding
-        let mut batch = LlamaBatch::new(max_tokens as usize, 0, 1);
-
-        let mut max_seq_id_batch = 0;
-        let mut output = Vec::with_capacity(tokens_lines_list.len());
-        let normalise = true;
-        for tokens in &tokens_lines_list {
-            // Flush the batch if the next prompt would exceed our batch size
-            if (batch.n_tokens() as usize + tokens.len()) > max_tokens as usize {
-                batch_decode_rerank(
-                    &mut ctx,
-                    &mut batch,
-                    max_seq_id_batch,
-                    &mut output,
-                    normalise,
-                    "rank".to_string(),
-                )?;
-                max_seq_id_batch = 0;
-                batch.clear();
-            }
-
-            batch.add_sequence(tokens, max_seq_id_batch, false)?;
-            max_seq_id_batch += 1;
-        }
-        // Handle final batch
-        batch_decode_rerank(
+        let output = rerank_token_batches(
             &mut ctx,
-            &mut batch,
-            max_seq_id_batch,
-            &mut output,
-            normalise,
-            "rank".to_string(),
+            &tokens_lines_list,
+            max_tokens as usize,
+            true,
+            "rank",
         )?;
 
         let scores = output
@@ -704,14 +278,15 @@ mod tetes {
     }
 
     #[test]
+    #[serial(model)]
     fn qwen_reranker_test() -> Result<()> {
-        let json_file_path = "tests/test_data/bert_paper_query_summaries.json";
-        let input_str = fs::read_to_string(json_file_path)?;
-        let query_summaries = serde_json::from_str::<QuerySummaries>(&input_str)?;
-
-        let model_path = "models/Qwen3-Reranker-0.6B.f16.gguf";
+        let model_path = ensure_hf_model_file(
+            "sabafallah/Qwen3-Reranker-0.6B-Q8_0-GGUF",
+            "qwen3-reranker-0.6b-q8_0.gguf",
+            None,
+        )?;
         let backend = init_backend(true)?;
-        let model = init_model(model_path, &backend)?;
+        let model = init_model(&model_path, &backend)?;
         let max_tokens = 8192;
         let pooling_type = Some(LlamaPoolingType::Last);
         let mut ctx = init_reranker_context(&model, &backend, max_tokens, pooling_type)?;
@@ -728,13 +303,8 @@ mod tetes {
         let no_token = binding.get(0).unwrap();
         println!("yes_token: {:?}", yes_token);
         println!("no_token: {:?}", no_token);
-
-        let prefix_detokenized = model.common_detokenize(&prefix_tokens, true)?;
-        let suffix_detokenized = model.common_detokenize(&suffix_tokens, true)?;
-        assert_eq!(prefix, prefix_detokenized);
-        assert_eq!(suffix, suffix_detokenized);
-        println!("prefix: {}", prefix_detokenized);
-        println!("suffix: {}", suffix_detokenized);
+        println!("prefix tokens len: {}", prefix_tokens.len());
+        println!("suffix tokens len: {}", suffix_tokens.len());
 
         let instruction =
             Some("Given a web search query, retrieve relevant passages that answer the query");
@@ -776,10 +346,6 @@ mod tetes {
 
         for tokens in &tokens_lines_list {
             println!("tokens len: {}", tokens.len());
-            let text = model
-                .common_detokenize(&tokens, true)
-                .expect("unable to convert tokens to string");
-            println!("text: {}", text);
         }
 
         let n_ctx = ctx.n_ctx() as usize;
@@ -788,27 +354,7 @@ mod tetes {
             bail!("One of the provided prompts exceeds the size of the context window");
         }
 
-        let n_embd = model.n_embd();
-
-        // create a llama_batch with the size of the context
-        // we use this object to submit token data for decoding
-        let mut batch = LlamaBatch::new(max_tokens as usize, 0, 1);
-
-        let mut max_seq_id_batch = 0;
-        let mut output = Vec::with_capacity(tokens_lines_list.len());
-        for tokens in &tokens_lines_list {
-            // Flush the batch if the next prompt would exceed our batch size
-            if (batch.n_tokens() as usize + tokens.len()) > max_tokens as usize {
-                batch_decode_rerank_last(&mut ctx, &mut batch, &mut output, max_seq_id_batch)?;
-                max_seq_id_batch = 0;
-                batch.clear();
-            }
-
-            batch.add_sequence(tokens, max_seq_id_batch, false)?;
-            max_seq_id_batch += 1;
-        }
-        // Handle final batch
-        batch_decode_rerank_last(&mut ctx, &mut batch, &mut output, max_seq_id_batch)?;
+        let output = rerank_last_token_batches(&mut ctx, &tokens_lines_list, max_tokens as usize)?;
 
         let mut scores: Vec<_> = output.iter().enumerate().collect();
         println!("scores before sort: {:?}", scores);
