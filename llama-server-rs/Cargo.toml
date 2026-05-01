@@ -1,0 +1,46 @@
+[package]
+name = "llama-server-rs"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+llama-cpp = { path = "../llama-cpp", version = "0.1.0" }
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace", "auth", "timeout", "request-id", "util"] }
+futures = "0.3"
+tokio-stream = "0.1"
+tokio-util = "0.7"
+async-stream = "0.3"
+bytes = "1.5"
+axum-extra = { version = "0.9", features = ["typed-header"] }
+prometheus = "0.13"
+axum-server = { version = "0.6", features = ["tls-rustls"] }
+rustls = "0.23"
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+parking_lot = "0.12"
+uuid = { version = "1", features = ["v4"] }
+dashmap = "5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+base64 = "0.22"
+encoding_rs = { workspace = true }
+hf-hub = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+eventsource-stream = "0.2"
+tempfile = "3"
+
+[features]
+cuda = ["llama-cpp/cuda"]
+metal = ["llama-cpp/metal"]
+vulkan = ["llama-cpp/vulkan"]
+
+[lints]
+workspace = true
