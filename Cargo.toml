@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "qllama-sys",
     "qllama",
+    "llama-server-rs",
     "examples/embeddings",
     "examples/simple",
     "examples/reranker",
