@@ -44,5 +44,5 @@ async fn main() -> anyhow::Result<()> {
 
 #[allow(dead_code)]
 fn _fixture_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../llama-cpp/src/gguf/ggml-vocab-bert-bge.gguf")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../qllama/src/gguf/ggml-vocab-bert-bge.gguf")
 }

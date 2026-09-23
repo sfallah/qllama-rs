@@ -19,9 +19,9 @@
 | Server context | `server_context` (`server-context.cpp`) owns model, contexts, slots, queue, prompt cache, mtmd, speculative draft model, LoRA stack. | `engine::Engine` wraps a queue + dummy slot loop; **no model is ever loaded**. | The entire inference layer is a stub. `llama_backend`, `LlamaModel`, `LlamaContext` are not instantiated. |
 | Task queue | `server_queue` (priority + deferred lanes, callbacks `on_new_task`/`on_update_slots`). | `engine/queue.rs` — simple MPSC + deferred VecDeque. | No priority, no completion routing, no cancellation propagation, only one broadcast per task. |
 | Slot scheduler | `server_slot` array; `update_slots()` continuous batcher; KV-prefix reuse; per-slot `server_prompt` cache; speculative draft model. | `engine/slot.rs` — just `{id, active_task_id, phase}`. | No batching, no KV reuse, no decoding loop. |
-| Sampling | `common_sampler` chain (penalties, dry, top_k, typ_p, top_p, min_p, xtc, mirostat, temperature, grammar, logit-bias). | `engine/sampler.rs` — stores 4 fields, never used. | Need full chain construction from request payload using `LlamaSampler::*` from `llama-cpp/src/sampling.rs`. |
-| Chat templating | `chat.cpp` + Jinja via `minja`; OAI-compat parser `chat_parse_state_oaicompat`. | `engine/chat.rs` — returns `payload["messages"]` only. | Use `OpenAIChatTemplateParams` + `ChatParseStateOaicompat` from `llama-cpp::openai`. |
-| Multimodal | `mtmd_helper`, `server_tokens` mixed text+image chunks. | `engine/mtmd.rs` — returns raw payload. | Wire `llama-cpp::mtmd` into prompt-build pipeline. |
+| Sampling | `common_sampler` chain (penalties, dry, top_k, typ_p, top_p, min_p, xtc, mirostat, temperature, grammar, logit-bias). | `engine/sampler.rs` — stores 4 fields, never used. | Need full chain construction from request payload using `LlamaSampler::*` from `qllama/src/sampling.rs`. |
+| Chat templating | `chat.cpp` + Jinja via `minja`; OAI-compat parser `chat_parse_state_oaicompat`. | `engine/chat.rs` — returns `payload["messages"]` only. | Use `OpenAIChatTemplateParams` + `ChatParseStateOaicompat` from `qllama::openai`. |
+| Multimodal | `mtmd_helper`, `server_tokens` mixed text+image chunks. | `engine/mtmd.rs` — returns raw payload. | Wire `qllama::mtmd` into prompt-build pipeline. |
 | Prompt cache | `server_prompt_cache` LRU on disk + in-memory KV state via `llama_state_seq_*`. | `engine/prompt_cache.rs` — generic byte LRU, unused. | Bind to `LlamaContext::state_seq_save/load`. |
 | Streaming | httplib chunked-encoding generator (`server_res_generator`); SSE everywhere. | `http/sse.rs` — legacy and OAI SSE encoders for the completion endpoints. | Anthropic event stream and the remaining streaming endpoints still unencoded. |
 | Metrics | Prometheus text in `routes.get_metrics`: `n_prompt_tokens_total`, `n_predicted_tokens_total`, `kv_cache_*`, `requests_*`, slot-busy gauge. | `http/handlers/metrics.rs` — 4 hand-formatted counters. | Build `prometheus::Registry` covering full C++ metric set. |
@@ -168,13 +168,13 @@ References (server `README.md`): `POST /completion` (L382–572), `POST /v1/chat
 1. **Model lifecycle (P0).** Load `LlamaModel` + `LlamaContext` per slot at boot; expose via `AppState`. Add `--n-ctx`, `--n-batch`, `--n-ubatch`, `--n-parallel`, `--ctx-shift`, `--flash-attn`, `--rope-*`, `--cache-type-k/v`, `--mlock`, `--no-mmap`, `--n-gpu-layers`, `--main-gpu`, `--tensor-split`, `--numa`. New files: `engine/model.rs`, `engine/runtime.rs`. Replace stub `engine/loop.rs`.
 2. **Slot scheduler & continuous batching (P0).** Replace `engine/slot.rs` with full state (sequence id, tokens-cached, params, kv-prefix, draft stats, prompt-cache handle). Implement `update_slots()` analogue: pack pending slot prompts into one `LlamaBatch`, decode, distribute logits per-seq, advance samplers. Mirror `server-context.cpp::server_context::update_slots`.
 3. **Queue overhaul (P1).** Task → result-channel map (replace single broadcast). Priorities (control vs gen vs embed), cancellation propagation, `defer` on full slots, `fail_on_no_slot`.
-4. **Sampler chain (P0).** New `engine/sampler/build.rs`: penalties → dry → top_k → typ_p → top_p → min_p → xtc → temp → grammar/llguidance → dist. Wire `samplers` ordering, `mirostat`, `logit_bias`, `seed`. Bindings in `llama-cpp/src/sampling.rs`.
+4. **Sampler chain (P0).** New `engine/sampler/build.rs`: penalties → dry → top_k → typ_p → top_p → min_p → xtc → temp → grammar/llguidance → dist. Wire `samplers` ordering, `mirostat`, `logit_bias`, `seed`. Bindings in `qllama/src/sampling.rs`.
 5. **Grammar / JSON-Schema / llguidance (P1).** `grammar` → `LlamaSampler::grammar`; `json_schema` / `response_format.schema` → `json_schema_to_grammar`; `--grammar-llguidance` → `LlamaSampler::llguidance`. Lazy grammar with `grammar_triggers`/`preserved_tokens`.
 6. **Prompt cache (P1).** Replace `engine/prompt_cache.rs` with two tiers:
    - **In-memory KV reuse:** common-prefix detection vs cached tokens; `llama_kv_cache_seq_rm` for divergent suffix.
    - **Disk persistence:** `LlamaContext::state_seq_save/load` under `--slot-save-path`.
-7. **Multimodal pipeline (P2).** Wire `llama-cpp::mtmd` (`MtmdContext`, `MtmdBitmap`, `MtmdInputChunks`). Decode `messages[*].content[*].image_url.url` (data: URI or HTTP), build chunks, replace media markers, decode via `mtmd_helper_eval`. Gate on `--mmproj`.
-8. **Speculative decoding (P2).** Optional draft model via `--model-draft`, `--ctx-size-draft`. Per-task params `speculative.{n_min,n_max,p_min}`. Requires new FFI shims in `llama-cpp-sys` (`common_speculative_*` is not in public `llama.h`).
+7. **Multimodal pipeline (P2).** Wire `qllama::mtmd` (`MtmdContext`, `MtmdBitmap`, `MtmdInputChunks`). Decode `messages[*].content[*].image_url.url` (data: URI or HTTP), build chunks, replace media markers, decode via `mtmd_helper_eval`. Gate on `--mmproj`.
+8. **Speculative decoding (P2).** Optional draft model via `--model-draft`, `--ctx-size-draft`. Per-task params `speculative.{n_min,n_max,p_min}`. Requires new FFI shims in `qllama-sys` (`common_speculative_*` is not in public `llama.h`).
 9. **LoRA hot-swap (P1).** Use existing `LlamaLoraAdapter*` types; verify/expose `LlamaContext::set_adapter_lora(&adapter, scale)` and `clear_adapter_lora`.
 10. **Embeddings & pooling (P1).** Honor `--pooling {none,mean,cls,last,rank}`; for `none` return per-token vectors via `embeddings_seq_ith`/`embeddings_ith`. Normalize unless `--embd-normalize 0`.
 11. **Reranking (P1).** Run with `--pooling rank`; concatenate `query` + `BOS` + `doc` per pair; emit single logit.
@@ -226,7 +226,7 @@ References (server `README.md`): `POST /completion` (L382–572), `POST /v1/chat
 - `/infill` with FIM tokens.
 
 **Phase 4 — Multimodal (P1).**
-- Wire `llama-cpp::mtmd` for chat `image_url`; remote URL fetch + base64 decode.
+- Wire `qllama::mtmd` for chat `image_url`; remote URL fetch + base64 decode.
 - Update `/props.modalities`, `media_marker`.
 
 **Phase 5 — Slots, LoRA, prompt cache persistence (P1).**
@@ -250,7 +250,7 @@ References (server `README.md`): `POST /completion` (L382–572), `POST /v1/chat
 ## 8. Testing Strategy
 
 1. **Unit tests** alongside each engine module — sampler builder, chat-template golden outputs, prompt-cache prefix detection, logit-bias parsing.
-2. **Integration tests** (`tests/`) — split `smoke_fixture.rs` into `tests/completion_native.rs`, `tests/chat_oai.rs`, `tests/embeddings.rs`, `tests/rerank.rs`, `tests/slots.rs`, `tests/lora.rs`. Use existing tiny GGUF fixtures (`llama-cpp/src/gguf/ggml-vocab-bert-bge.gguf`) for tokenizer-only tests; add a tiny generation-capable fixture for completions. Stream tests via `eventsource-stream` + `reqwest`.
+2. **Integration tests** (`tests/`) — split `smoke_fixture.rs` into `tests/completion_native.rs`, `tests/chat_oai.rs`, `tests/embeddings.rs`, `tests/rerank.rs`, `tests/slots.rs`, `tests/lora.rs`. Use existing tiny GGUF fixtures (`qllama/src/gguf/ggml-vocab-bert-bge.gguf`) for tokenizer-only tests; add a tiny generation-capable fixture for completions. Stream tests via `eventsource-stream` + `reqwest`.
 3. **Golden compatibility tests** (feature `golden`) — spin up vendored C++ server, replay request fixtures, compare JSON shape (numeric tolerance) and SSE event sequence.
 4. **Property tests** (proptest) — tokenize/detokenize round-trip; JSON-schema → grammar → sampler-accepts-only-valid output.
 5. **Smoke fixture** — boot server with vocab-only fixture; assert `/health`, `/v1/models`, `/props`, auth rejection, CORS preflight, OPTIONS, error envelope shape.
@@ -261,8 +261,8 @@ References (server `README.md`): `POST /completion` (L382–572), `POST /v1/chat
 ## 9. Open Questions / Risks
 
 1. **Router mode.** Defer to Phase 8; have `/models/load`/`/models/unload` return 501 until then.
-2. **Audio transcriptions.** Whisper not exposed by `llama-cpp-sys`. Options: (A) 501 stub, (B) new `whisper-cpp` sibling crate, (C) shell out. Recommend A through Phase 6; B in Phase 7 if needed.
-3. **Speculative bindings.** `common_speculative_*` lives in `llama.cpp/common`, not public `llama.h`. Need FFI shims in `llama-cpp-sys` (same `llama_rs_*` pattern as chat / JSON-schema).
+2. **Audio transcriptions.** Whisper not exposed by `qllama-sys`. Options: (A) 501 stub, (B) new `whisper-cpp` sibling crate, (C) shell out. Recommend A through Phase 6; B in Phase 7 if needed.
+3. **Speculative bindings.** `common_speculative_*` lives in `llama.cpp/common`, not public `llama.h`. Need FFI shims in `qllama-sys` (same `llama_rs_*` pattern as chat / JSON-schema).
 4. **Jinja engine.** C++ uses `minja`. Options: bind `minja` via FFI (preferred — exact parity) or use `minijinja` (risk of template incompat). Recommend FFI shim.
 5. **Continuous-batching correctness.** Highest-risk piece. Mitigation: port `update_slots()` faithfully; add deterministic unit tests for prompt-prefix reuse.
 6. **Single broadcast channel per task.** Switch to per-task `mpsc` to avoid lossy delivery on slow subscribers.

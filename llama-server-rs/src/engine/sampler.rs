@@ -1,9 +1,9 @@
 use crate::config::ServerConfig;
 use crate::engine::task::TaskError;
-use llama_cpp::model::{AddBos, LlamaModel};
-use llama_cpp::sampling::LlamaSampler;
-use llama_cpp::token::logit_bias::LlamaLogitBias;
-use llama_cpp::token::LlamaToken;
+use qllama::model::{AddBos, LlamaModel};
+use qllama::sampling::LlamaSampler;
+use qllama::token::logit_bias::LlamaLogitBias;
+use qllama::token::LlamaToken;
 use serde_json::{json, Map, Value};
 
 /// `LLAMA_DEFAULT_SEED`: the seed value that makes llama.cpp pick a random one.
@@ -263,6 +263,7 @@ impl SamplingParams {
                     .cloned()
                     .collect::<Vec<_>>();
                 chain.push(LlamaSampler::penalties(
+                    n_vocab,
                     self.penalty_last_n,
                     self.penalty_repeat,
                     self.penalty_freq,

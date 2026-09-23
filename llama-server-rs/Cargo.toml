@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-llama-cpp = { path = "../llama-cpp", version = "0.1.0" }
+qllama = { path = "../qllama", version = "0.1.0" }
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
 tower = "0.4"
@@ -38,9 +38,9 @@ eventsource-stream = "0.2"
 tempfile = "3"
 
 [features]
-cuda = ["llama-cpp/cuda"]
-metal = ["llama-cpp/metal"]
-vulkan = ["llama-cpp/vulkan"]
+cuda = ["qllama/cuda"]
+metal = ["qllama/metal"]
+vulkan = ["qllama/vulkan"]
 
 [lints]
 workspace = true

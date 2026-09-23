@@ -90,7 +90,7 @@ This document defines the target production architecture for full llama.cpp serv
   - awaits terminal result for non-streaming endpoints, or
   - returns SSE stream bound to task event channel.
 4. Scheduler assigns task to slot worker.
-5. Worker executes llama-cpp calls and emits events.
+5. Worker executes qllama calls and emits events.
 6. Handler adapter maps events into endpoint-specific response frames.
 
 ## Error Model
