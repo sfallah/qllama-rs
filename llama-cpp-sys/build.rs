@@ -532,8 +532,13 @@ fn main() {
     config.define("LLAMA_BUILD_EXAMPLES", "OFF");
     config.define("LLAMA_BUILD_SERVER", "OFF");
     config.define("LLAMA_BUILD_TOOLS", "OFF");
+    // The unified `llama` binary (app/) is on by default for standalone builds; it is not part of the library.
+    config.define("LLAMA_BUILD_APP", "OFF");
     config.define("LLAMA_BUILD_COMMON", "ON");
     config.define("LLAMA_CURL", "OFF");
+    // Keeps the vendored cpp-httplib free of an OpenSSL dependency (it otherwise picks up whatever
+    // the host has, e.g. Homebrew OpenSSL); nothing in this crate uses llama.cpp's downloader.
+    config.define("LLAMA_OPENSSL", "OFF");
 
     // Pass CMAKE_ environment variables down to CMake
     for (key, value) in env::vars() {
@@ -861,8 +866,13 @@ fn main() {
             match entry {
                 Ok(path) => {
                     // Skip CLI / deprecation-warning binaries — we only want the library sources
+                    // listed in `add_library(mtmd ...)`. `debug/` holds the standalone
+                    // llama-mtmd-debug executable, which carries its own `main()`.
                     let filename = path.file_name().unwrap().to_str().unwrap();
                     if filename == "mtmd-cli.cpp" || filename == "deprecation-warning.cpp" {
+                        continue;
+                    }
+                    if path.parent().is_some_and(|dir| dir.ends_with("debug")) {
                         continue;
                     }
                     mtmd_build.file(&path);
@@ -871,7 +881,21 @@ fn main() {
             }
         }
 
+        // mtmd-helper.cpp hashes media buffers with llama.cpp's vendored hash library
+        // (`vendor::hash` in tools/mtmd/CMakeLists.txt), which lives outside tools/mtmd.
+        let hash_src = llama_src.join("vendor/hash");
+        mtmd_build.include(&hash_src).file(hash_src.join("hash.cpp"));
+
         mtmd_build.compile("mtmd");
+
+        // sha256.c is plain C: built through the C++ driver above its symbols would be mangled and
+        // hash.cpp's `extern "C"` references would not resolve. Warnings off as in llama.cpp's CMake.
+        cc::Build::new()
+            .include(&hash_src)
+            .file(hash_src.join("sha256/sha256.c"))
+            .warnings(false)
+            .pic(true)
+            .compile("mtmd_vendor_hash");
     }
 
     // Search paths

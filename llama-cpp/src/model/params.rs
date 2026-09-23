@@ -121,6 +121,17 @@ impl Default for LlamaSplitMode {
 /// `llama_cpp::max_devices()`.
 pub const LLAMA_CPP_MAX_DEVICES: usize = 16;
 
+/// Combines the two independent `use_mmap`/`use_mlock` flags this crate's public API exposes into
+/// the single `load_mode` enum llama.cpp now stores them as.
+fn load_mode_from_flags(use_mmap: bool, use_mlock: bool) -> llama_cpp_sys::llama_load_mode {
+    match (use_mmap, use_mlock) {
+        (false, false) => llama_cpp_sys::LLAMA_LOAD_MODE_NONE,
+        (true, false) => llama_cpp_sys::LLAMA_LOAD_MODE_MMAP,
+        (false, true) => llama_cpp_sys::LLAMA_LOAD_MODE_MLOCK,
+        (true, true) => llama_cpp_sys::LLAMA_LOAD_MODE_MMAP_MLOCK,
+    }
+}
+
 /// A safe wrapper around `llama_model_params`.
 #[allow(clippy::module_name_repetitions)]
 pub struct LlamaModelParams {
@@ -136,8 +147,8 @@ impl Debug for LlamaModelParams {
             .field("n_gpu_layers", &self.params.n_gpu_layers)
             .field("main_gpu", &self.params.main_gpu)
             .field("vocab_only", &self.params.vocab_only)
-            .field("use_mmap", &self.params.use_mmap)
-            .field("use_mlock", &self.params.use_mlock)
+            .field("use_mmap", &self.use_mmap())
+            .field("use_mlock", &self.use_mlock())
             .field("split_mode", &self.split_mode())
             .field("devices", &self.devices)
             .field("kv_overrides", &"vec of kv_overrides")
@@ -286,15 +297,27 @@ impl LlamaModelParams {
     }
 
     /// use mmap if possible
+    ///
+    /// `use_mmap`/`use_mlock` were replaced by a single `load_mode` enum upstream; this getter
+    /// decodes the combined mode back into the two independent flags this crate exposes. The
+    /// default `LLAMA_LOAD_MODE_AUTO` mmaps whenever the device allows it, so it reads as `true`.
     #[must_use]
     pub fn use_mmap(&self) -> bool {
-        self.params.use_mmap
+        matches!(
+            self.params.load_mode,
+            llama_cpp_sys::LLAMA_LOAD_MODE_AUTO
+                | llama_cpp_sys::LLAMA_LOAD_MODE_MMAP
+                | llama_cpp_sys::LLAMA_LOAD_MODE_MMAP_MLOCK
+        )
     }
 
     /// force system to keep model in RAM
     #[must_use]
     pub fn use_mlock(&self) -> bool {
-        self.params.use_mlock
+        matches!(
+            self.params.load_mode,
+            llama_cpp_sys::LLAMA_LOAD_MODE_MLOCK | llama_cpp_sys::LLAMA_LOAD_MODE_MMAP_MLOCK
+        )
     }
 
     /// get the split mode
@@ -364,14 +387,14 @@ impl LlamaModelParams {
     /// sets `use_mmap`
     #[must_use]
     pub fn with_use_mmap(mut self, use_mmap: bool) -> Self {
-        self.params.use_mmap = use_mmap;
+        self.params.load_mode = load_mode_from_flags(use_mmap, self.use_mlock());
         self
     }
 
     /// sets `use_mlock`
     #[must_use]
     pub fn with_use_mlock(mut self, use_mlock: bool) -> Self {
-        self.params.use_mlock = use_mlock;
+        self.params.load_mode = load_mode_from_flags(self.use_mmap(), use_mlock);
         self
     }
 

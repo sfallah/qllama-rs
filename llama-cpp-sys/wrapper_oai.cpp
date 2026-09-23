@@ -11,10 +11,6 @@
 #include "llama.cpp/include/llama.h"
 #include "wrapper_utils.h"
 
-#include <nlohmann/json.hpp>
-
-using json = nlohmann::ordered_json;
-
 struct llama_rs_chat_parse_state_oaicompat {
     common_chat_parser_params syntax;
     common_chat_msg chat_msg;
@@ -57,7 +53,7 @@ static bool ends_with(const std::string & value, const std::string & suffix) {
 static bool detect_thinking_forced_open(const common_chat_params & params) {
     return params.supports_thinking
         && !params.thinking_start_tag.empty()
-        && !params.thinking_end_tag.empty()
+        && !params.thinking_end_tags.empty()
         && ends_with(params.generation_prompt, params.thinking_start_tag);
 }
 
@@ -285,7 +281,7 @@ extern "C" llama_rs_status llama_rs_apply_chat_template_with_tools_oaicompat(
         }
 
         if (tools_json && std::strlen(tools_json) > 0) {
-            inputs.tools = common_chat_tools_parse_oaicompat(json::parse(tools_json));
+            inputs.tools = common_chat_tools_parse_oaicompat(common_json::parse(tools_json));
         }
         if (json_schema && std::strlen(json_schema) > 0) {
             inputs.json_schema = json_schema;
@@ -375,9 +371,9 @@ extern "C" llama_rs_status llama_rs_apply_chat_template_oaicompat(
         inputs.add_bos = params->add_bos;
         inputs.add_eos = params->add_eos;
 
-        inputs.messages = common_chat_msgs_parse_oaicompat(json::parse(params->messages));
+        inputs.messages = common_chat_msgs_parse_oaicompat(common_json::parse(params->messages));
         if (params->tools && std::strlen(params->tools) > 0) {
-            inputs.tools = common_chat_tools_parse_oaicompat(json::parse(params->tools));
+            inputs.tools = common_chat_tools_parse_oaicompat(common_json::parse(params->tools));
         }
         if (params->tool_choice && std::strlen(params->tool_choice) > 0) {
             inputs.tool_choice = common_chat_tool_choice_parse_oaicompat(params->tool_choice);
@@ -392,7 +388,7 @@ extern "C" llama_rs_status llama_rs_apply_chat_template_oaicompat(
             inputs.reasoning_format = common_reasoning_format_from_name(params->reasoning_format);
         }
         if (params->chat_template_kwargs && std::strlen(params->chat_template_kwargs) > 0) {
-            auto kwargs = json::parse(params->chat_template_kwargs);
+            auto kwargs = common_json::parse(params->chat_template_kwargs);
             if (!kwargs.is_object()) {
                 throw std::invalid_argument("chat_template_kwargs must be a JSON object");
             }
@@ -681,7 +677,7 @@ extern "C" llama_rs_status llama_rs_chat_tools_parse_oaicompat(
     *out_count = 0;
 
     try {
-        auto tools = common_chat_tools_parse_oaicompat(json::parse(tools_json));
+        auto tools = common_chat_tools_parse_oaicompat(common_json::parse(tools_json));
         if (tools.empty()) {
             return LLAMA_RS_STATUS_OK;
         }
@@ -771,7 +767,7 @@ extern "C" llama_rs_status llama_rs_chat_msgs_parse_oaicompat(
     *out_count = 0;
 
     try {
-        auto msgs = common_chat_msgs_parse_oaicompat(json::parse(messages_json));
+        auto msgs = common_chat_msgs_parse_oaicompat(common_json::parse(messages_json));
         if (msgs.empty()) {
             return LLAMA_RS_STATUS_OK;
         }
@@ -831,7 +827,38 @@ extern "C" llama_rs_status llama_rs_chat_msgs_to_oaicompat_json(
     }
 }
 
-/*
+// Mirrors server_chat_msg_diff_to_json_oaicompat() in tools/server/server-chat.cpp; llama.cpp keeps
+// the streaming-delta encoding in the server rather than in libcommon.
+static common_json chat_msg_diff_to_json_oaicompat(const common_chat_msg_diff & diff) {
+    common_json delta = common_json::object();
+    if (!diff.reasoning_content_delta.empty()) {
+        delta["reasoning_content"] = diff.reasoning_content_delta;
+    }
+    if (!diff.content_delta.empty()) {
+        delta["content"] = diff.content_delta;
+    }
+    if (diff.tool_call_index != std::string::npos) {
+        common_json tool_call = common_json::object();
+        tool_call["index"] = diff.tool_call_index;
+        if (!diff.tool_call_delta.id.empty()) {
+            tool_call["id"]   = diff.tool_call_delta.id;
+            tool_call["type"] = "function";
+        }
+        if (!diff.tool_call_delta.name.empty() || !diff.tool_call_delta.arguments.empty()) {
+            common_json function = common_json::object();
+            if (!diff.tool_call_delta.name.empty()) {
+                function["name"] = diff.tool_call_delta.name;
+            }
+            if (!diff.tool_call_delta.arguments.empty()) {
+                function["arguments"] = diff.tool_call_delta.arguments;
+            }
+            tool_call["function"] = function;
+        }
+        delta["tool_calls"] = common_json::array({ tool_call });
+    }
+    return delta;
+}
+
 extern "C" llama_rs_status llama_rs_chat_msg_diff_to_oaicompat_json(
     const struct llama_rs_chat_msg_diff_oaicompat * diff,
     char ** out_json) {
@@ -855,14 +882,13 @@ extern "C" llama_rs_status llama_rs_chat_msg_diff_to_oaicompat_json(
             msg_diff.tool_call_delta.id =
                 diff->tool_call_delta.id ? diff->tool_call_delta.id : "";
         }
-        auto json_delta = common_chat_msgs_to_json_oaicompat(msg_diff).dump();
+        auto json_delta = chat_msg_diff_to_json_oaicompat(msg_diff).dump();
         *out_json = llama_rs_dup_string(json_delta);
         return *out_json ? LLAMA_RS_STATUS_OK : LLAMA_RS_STATUS_ALLOCATION_FAILED;
     } catch (const std::exception &) {
         return LLAMA_RS_STATUS_EXCEPTION;
     }
 }
-*/
 
 extern "C" llama_rs_status llama_rs_chat_tool_choice_parse_oaicompat(
     const char * tool_choice,
