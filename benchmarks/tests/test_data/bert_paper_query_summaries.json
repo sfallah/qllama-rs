@@ -1,0 +1,25 @@
+{
+    "query": "How can we apply pre-trained language representations to NLP tasks? Explain the method in detail?",
+    "summaries": [
+        " However, in prior\nwork, only sentence embeddings are transferred to\ndown-stream tasks, where BERT transfers all pa-\nrameters to initialize end-task model parameters.",
+        "\nAs we show\nin Figure 1, C is used for next sentence predic-\ntion (NSP).5 Despite its simplicity, we demon-\nstrate in Section 5.1 that pre-training towards this\ntask is very bene\ufb01cial to both QA and NLI.",
+        " The two approaches share the\nsame objective function during pre-training, where\nthey use unidirectional language models to learn\ngeneral language representations.",
+        " Unlike recent language repre-\nsentation models (Peters et al., 2018a; Rad-\nford et al., 2018), BERT is designed to pre-\ntrain deep bidirectional representations from\nunlabeled text by jointly conditioning on both\nleft and right context in all layers.",
+        " As a re-\nsult, the pre-trained BERT model can be \ufb01ne-\ntuned with just one additional output layer\nto create state-of-the-art models for a wide\nrange of tasks, such as question answering and\nlanguage inference, without substantial task-\nspeci\ufb01c architecture modi\ufb01cations.",
+        "\nPre-trained word embeddings\nare an integral part of modern NLP systems, of-\nfering signi\ufb01cant improvements over embeddings\nlearned from scratch (Turian et al., 2010).",
+        "\n\u2022 BERT advances the state of the art for eleven\nNLP tasks.",
+        " Our major contribution is further general-\nizing these \ufb01ndings to deep bidirectional architec-\ntures, allowing the same pre-trained model to suc-\ncessfully tackle a broad set of NLP tasks.",
+        " The contributions\nof our paper are as follows:\n\u2022 We demonstrate the importance of bidirectional\npre-training for language representations.",
+        " (2018), which uses unidirec-\ntional language models for pre-training, BERT\nuses masked language models to enable pre-\ntrained deep bidirectional representations.",
+        "\nLeft-to-right language model-\n\fFigure 1: Overall pre-training and \ufb01ne-tuning procedures for BERT.",
+        "\n4We note that in the literature the bidirectional Trans-\n\fInput/Output Representations\nTo make BERT\nhandle a variety of down-stream tasks, our input\nrepresentation is able to unambiguously represent\nboth a single sentence and a pair of sentences\n(e.g., \u3008Question, Answer \u3009) in one token sequence.",
+        "\n4\nExperiments\nIn this section, we present BERT \ufb01ne-tuning re-\nsults on 11 NLP tasks.",
+        "\nTo train sentence representations, prior\nwork has used objectives to rank candidate next\nsentences (Jernite et al., 2017; Logeswaran and\nLee, 2018), left-to-right generation of next sen-\ntence words given a representation of the previous\nsentence (Kiros et al., 2015), or denoising auto-\nencoder derived objectives (Hill et al., 2016).",
+        "\nWhen integrating contextual word embeddings\nwith existing task-speci\ufb01c architectures, ELMo\nadvances the state of the art for several major NLP\nbenchmarks (Peters et al., 2018a) including ques-\ntion answering (Rajpurkar et al., 2016), sentiment\nanalysis (Socher et al., 2013), and named entity\nrecognition (Tjong Kim Sang and De Meulder,\n2003).",
+        " The core argument of this\nwork is that the bi-directionality and the two pre-\ntraining tasks presented in Section 3.1 account for\nthe majority of the empirical improvements, but\nwe do note that there are several other differences\nbetween how BERT and GPT were trained:\n\u2022 GPT is trained on the BooksCorpus (800M\nwords); BERT is trained on the BooksCor-\npus (800M words) and Wikipedia (2,500M\nwords).",
+        " Glove: Global vectors for\nword representation.",
+        "\nFor \ufb01ne-\ntuning, the BERT model is \ufb01rst initialized with\nthe pre-trained parameters, and all of the param-\neters are \ufb01ne-tuned using labeled data from the\ndownstream tasks.",
+        "\nAppendix for \u201cBERT: Pre-training of\nDeep Bidirectional Transformers for\nLanguage Understanding\u201d\nWe organize the appendix into three sections:\n\u2022 Additional implementation details for BERT\nare presented in Appendix A;\n\u2022 Additional details for our experiments are\npresented in Appendix B; and\n\u2022 Additional ablation studies are presented in\nAppendix C.\nWe present additional ablation studies for\nBERT including:\n\u2013 Effect of Number of Training Steps; and\n\u2013 Ablation for Different Masking Proce-\ndures.",
+        " Next, we evaluate the impact\nof training bidirectional representations by com-\nparing \u201cNo NSP\u201d to \u201cLTR & No NSP\u201d."
+    ]
+}
