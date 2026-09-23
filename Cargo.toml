@@ -9,6 +9,9 @@ members = [
     "examples/mtmd",
     "examples/server",
 ]
+# benchmarks/ depends on fast-text-splitter from a private GitLab remote; as a member it would
+# break `cargo build --workspace` for everyone else. It builds with --manifest-path benchmarks/Cargo.toml.
+exclude = ["benchmarks"]
 
 [workspace.dependencies]
 # core library deps

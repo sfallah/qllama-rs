@@ -3,8 +3,8 @@ use candle_core::{Device, Tensor};
 use fast_text_splitter::config::SplitterLiteConfig;
 use fast_text_splitter::hf_tokenizer::HFTokenizer;
 use fast_text_splitter::splitter::split_node::utils::SplitResultLite;
-use llama_cpp::context::LlamaContext;
-use llama_cpp::token::LlamaToken;
+use qllama::context::LlamaContext;
+use qllama::token::LlamaToken;
 use std::fs;
 use std::path::Path;
 
@@ -181,7 +181,7 @@ fn process_inputs_embeddings(
 /// # Example
 ///
 /// ```no_run
-/// use llama_cpp_rs_bench::process_data::text_file_embeddings;
+/// use qllama_bench::process_data::text_file_embeddings;
 ///
 /// text_file_embeddings(
 ///     "models/my-embedding-model.gguf",
@@ -278,7 +278,7 @@ pub fn text_file_embeddings(
 /// # Example
 ///
 /// ```no_run
-/// use llama_cpp_rs_bench::process_data::json_file_embeddings;
+/// use qllama_bench::process_data::json_file_embeddings;
 ///
 /// json_file_embeddings(
 ///     "models/bge-m3-q4_k_m.gguf",

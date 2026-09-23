@@ -6,13 +6,13 @@ use fast_text_splitter::config::SplitterLiteConfig;
 use fast_text_splitter::hf_tokenizer::HFTokenizer;
 use hf_hub::api::sync::Api;
 use hf_hub::{Repo, RepoType};
-use llama_cpp::context::params::{LlamaContextParams, LlamaPoolingType};
-use llama_cpp::context::LlamaContext;
-use llama_cpp::llama_backend::LlamaBackend;
-use llama_cpp::llama_batch::LlamaBatch;
-use llama_cpp::model::params::LlamaModelParams;
-use llama_cpp::model::{AddBos, LlamaModel};
-use llama_cpp::token::LlamaToken;
+use qllama::context::params::{LlamaContextParams, LlamaPoolingType};
+use qllama::context::LlamaContext;
+use qllama::llama_backend::LlamaBackend;
+use qllama::llama_batch::LlamaBatch;
+use qllama::model::params::LlamaModelParams;
+use qllama::model::{AddBos, LlamaModel};
+use qllama::token::LlamaToken;
 use std::fmt::Debug;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
@@ -387,7 +387,7 @@ pub fn init_model(model_path: &str, backend: &LlamaBackend) -> Result<LlamaModel
 /// When `revision` is `None`, the repository's default `main` revision is used.
 ///
 /// ```no_run
-/// use llama_cpp_rs_bench::ensure_hf_model_file;
+/// use qllama_bench::ensure_hf_model_file;
 ///
 /// let model_path = ensure_hf_model_file(
 ///     "BAAI/bge-m3",

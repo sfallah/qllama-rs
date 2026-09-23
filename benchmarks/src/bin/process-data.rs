@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
-use llama_cpp_rs_bench::ensure_hf_model_file;
-use llama_cpp_rs_bench::process_data::{json_file_embeddings, text_file_embeddings};
+use qllama_bench::ensure_hf_model_file;
+use qllama_bench::process_data::{json_file_embeddings, text_file_embeddings};
 
 fn optional_str_value(value: &str) -> Option<&str> {
     if value == "-" {

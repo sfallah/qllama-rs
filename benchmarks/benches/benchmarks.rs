@@ -1,13 +1,13 @@
 use anyhow::Context;
 use criterion::{criterion_main, Criterion};
 use indexmap::IndexMap;
-use llama_cpp::context::params::{LlamaContextParams, LlamaPoolingType};
-use llama_cpp::context::LlamaContext;
-use llama_cpp::llama_batch::LlamaBatch;
-use llama_cpp::model::{AddBos, LlamaModel};
-use llama_cpp::token::LlamaToken;
-use llama_cpp_rs_bench::split_data::QuerySummaries;
-use llama_cpp_rs_bench::{
+use qllama::context::params::{LlamaContextParams, LlamaPoolingType};
+use qllama::context::LlamaContext;
+use qllama::llama_batch::LlamaBatch;
+use qllama::model::{AddBos, LlamaModel};
+use qllama::token::LlamaToken;
+use qllama_bench::split_data::QuerySummaries;
+use qllama_bench::{
     batch_decode_rerank, build_simple_reranker_prompts, ensure_hf_model_file, hf_tokenize,
     init_backend, init_model, init_reranker_context, init_splitter, llama_cpp_tokenize,
     load_query_summaries, process_batch, process_single, rerank_token_batches,

@@ -10,10 +10,10 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 
-use llama_cpp::context::params::LlamaPoolingType;
-use llama_cpp::ggml_time_us;
-use llama_cpp::model::AddBos;
-use llama_cpp_rs_bench::{
+use qllama::context::params::LlamaPoolingType;
+use qllama::ggml_time_us;
+use qllama::model::AddBos;
+use qllama_bench::{
     build_simple_reranker_prompts, ensure_hf_model_file, init_backend, init_model,
     init_reranker_context, load_query_summaries, rerank_token_batches,
 };

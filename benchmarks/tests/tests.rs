@@ -1,11 +1,11 @@
 mod tetes {
     use anyhow::{bail, Context, Result};
     use candle_core::{Device, Tensor};
-    use llama_cpp::context::params::LlamaPoolingType;
-    use llama_cpp::model::AddBos;
-    use llama_cpp::token::LlamaToken;
-    use llama_cpp_rs_bench::split_data::QuerySummaries;
-    use llama_cpp_rs_bench::{
+    use qllama::context::params::LlamaPoolingType;
+    use qllama::model::AddBos;
+    use qllama::token::LlamaToken;
+    use qllama_bench::split_data::QuerySummaries;
+    use qllama_bench::{
         build_simple_reranker_prompts, ensure_hf_model_file, init_backend, init_context,
         init_model, init_model_multi, init_reranker_context,
         load_query_summaries, process_splits_batch, rerank_last_token_batches,
