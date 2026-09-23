@@ -1,0 +1,3 @@
+# Git dependencies over SSH (private remotes) need the system git; cargo's built-in fetcher has no SSH agent.
+[net]
+git-fetch-with-cli = true

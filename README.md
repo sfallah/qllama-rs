@@ -16,8 +16,10 @@ and the crate names are its own. It is not a drop-in replacement for `llama-cpp-
 
 ## Building
 
-`qllama-sys` compiles llama.cpp from source, so you need `cmake` and a C/C++ toolchain. The first
-build is slow. Backends are Cargo features on `qllama`: `cuda`, `metal`, `vulkan`, `openmp` (default).
+`qllama-sys` compiles llama.cpp from source, so you need `cmake` and a C/C++ toolchain, and it
+generates the bindings with bindgen, which needs libclang **with its builtin headers** — on Debian/
+Ubuntu that is `libclang-common-<N>-dev` next to `libclang1-<N>` (or the full `clang` package); a
+build-script failure about `stdbool.h` means those headers are missing. The first build is slow. Backends are Cargo features on `qllama`: `cuda`, `metal`, `vulkan`, `openmp` (default).
 On Apple Silicon, Metal is enabled regardless of the feature flag.
 
 Clone with submodules:
