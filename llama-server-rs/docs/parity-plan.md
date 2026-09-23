@@ -23,7 +23,7 @@
 | Chat templating | `chat.cpp` + Jinja via `minja`; OAI-compat parser `chat_parse_state_oaicompat`. | `engine/chat.rs` — returns `payload["messages"]` only. | Use `OpenAIChatTemplateParams` + `ChatParseStateOaicompat` from `llama-cpp::openai`. |
 | Multimodal | `mtmd_helper`, `server_tokens` mixed text+image chunks. | `engine/mtmd.rs` — returns raw payload. | Wire `llama-cpp::mtmd` into prompt-build pipeline. |
 | Prompt cache | `server_prompt_cache` LRU on disk + in-memory KV state via `llama_state_seq_*`. | `engine/prompt_cache.rs` — generic byte LRU, unused. | Bind to `LlamaContext::state_seq_save/load`. |
-| Streaming | httplib chunked-encoding generator (`server_res_generator`); SSE + NDJSON. | `http/sse.rs` — generic `chunk`/`done`/`error` events. | Per-endpoint encoders (NDJSON for `/completion`, OAI SSE `data: {...}\n\n…[DONE]`, Anthropic event stream). |
+| Streaming | httplib chunked-encoding generator (`server_res_generator`); SSE everywhere. | `http/sse.rs` — legacy and OAI SSE encoders for the completion endpoints. | Anthropic event stream and the remaining streaming endpoints still unencoded. |
 | Metrics | Prometheus text in `routes.get_metrics`: `n_prompt_tokens_total`, `n_predicted_tokens_total`, `kv_cache_*`, `requests_*`, slot-busy gauge. | `http/handlers/metrics.rs` — 4 hand-formatted counters. | Build `prometheus::Registry` covering full C++ metric set. |
 | CLI / config | `common_params` ≈ 250 flags. | `cli.rs` — ~7 flags. | Massive expansion (see §6). |
 
@@ -43,7 +43,7 @@ Priority: P0 = critical (Phase 1–2), P1 = important (3–4), P2 = nice-to-have
 | 5 | POST | `/props` | `server.cpp:176` | same | ✅ | 🟥 | Mutates global defaults, gated by `--props`. | P2 |
 | 6 | GET | `/models` | `server.cpp:177` | `handlers/models.rs` | ✅ | 🟡 | Add `meta`, `created`, `permission`. | P1 |
 | 7 | GET | `/v1/models` | `server.cpp:178` | same | ✅ | 🟡 | Alias of #6. | P1 |
-| 8 | POST | `/completion` | `server.cpp:179` | `handlers/completions.rs::post_completion` | ✅ | 🟥 | Full legacy schema (§4.A); NDJSON streaming. | P0 |
+| 8 | POST | `/completion` | `server.cpp:179` | `handlers/completions.rs::post_completion` | ✅ | 🟥 | Full legacy schema (§4.A); SSE streaming without `[DONE]`. | P0 |
 | 9 | POST | `/completions` | `server.cpp:180` | same | ✅ | 🟥 | Alias of #8. | P0 |
 | 10 | POST | `/v1/completions` | `server.cpp:181` | `post_completions_oai` | ✅ | 🟥 | OAI text-completion shape; SSE + `[DONE]`. | P0 |
 | 11 | POST | `/chat/completions` | `server.cpp:182` | `handlers/chat.rs` | ✅ | 🟥 | OAI chat, Jinja tmpl, tools, response_format, streaming deltas, usage, multimodal `image_url`, finish_reason. | P0 |
@@ -85,7 +85,7 @@ References (server `README.md`): `POST /completion` (L382–572), `POST /v1/chat
 
 - **Request fields:** `prompt` (string|tokens|array), `temperature`, `dynatemp_range`, `dynatemp_exponent`, `top_k`, `top_p`, `min_p`, `n_predict`/`max_tokens`, `n_indent`, `n_keep`, `stream`, `stop`, `typical_p`, `repeat_penalty`, `repeat_last_n`, `presence_penalty`, `frequency_penalty`, `dry_multiplier`, `dry_base`, `dry_allowed_length`, `dry_penalty_last_n`, `dry_sequence_breakers`, `xtc_probability`, `xtc_threshold`, `mirostat`, `mirostat_tau`, `mirostat_eta`, `grammar`, `grammar_lazy`, `grammar_triggers`, `preserved_tokens`, `json_schema`, `seed`, `ignore_eos`, `logit_bias`, `n_probs`, `min_keep`, `t_max_predict_ms`, `image_data`, `id_slot`, `cache_prompt`, `return_tokens`, `samplers`, `timings_per_token`, `post_sampling_probs`, `response_fields`, `lora`.
 - **Response (non-stream):** `{content, tokens?, generation_settings, prompt, has_new_line, truncated, stop_type, stopping_word, tokens_cached, timings:{...}, index, completion_probabilities?, model, id_slot, …}`.
-- **Streaming:** newline-delimited JSON; final chunk `stop:true`.
+- **Streaming:** SSE `data: {…}\n\n` frames (`Content-Type: text/event-stream`); final frame carries `stop:true`; **no** `[DONE]` terminator (b8969 behaviour — releases before it used raw NDJSON).
 - **Errors:** 400 invalid, 503 no slot, 504 cancelled; envelope `{error:{message,type,code}}`.
 
 ### B. `/v1/completions`
@@ -193,7 +193,7 @@ References (server `README.md`): `POST /completion` (L382–572), `POST /v1/chat
 3. **SSE / streaming (`http/sse.rs`).** Replace generic encoder with per-endpoint encoders:
    - OAI SSE (`data: <json>\n\n` + `[DONE]`),
    - Anthropic event stream (named events),
-   - Legacy NDJSON for `/completion` & `/infill` (raw chunked, not SSE).
+   - Legacy SSE for `/completion` & `/infill` (`data: <json>\n\n` frames, final frame `stop:true`, **no** `[DONE]`).
 4. **Error format (`http/error.rs`).** Extend `AppError`: `NotFound(404)`, `ServiceUnavailable(503)`, `Conflict(409)`, `PayloadTooLarge(413)`, `RequestTimeout(504)`. Streaming errors emit final `error` event with `{error:{message,type,code}}` then close.
 5. **Request cancellation.** Bridge axum/hyper response-drop → `cancel.cancel()`.
 6. **Metrics.** `prometheus::Registry`; counters/gauges for queue depth, slots busy, prompt/predicted tokens, kv usage; expose at `/metrics`.

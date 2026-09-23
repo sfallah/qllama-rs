@@ -4,8 +4,9 @@ use axum::extract::State;
 pub async fn get_metrics(State(state): State<AppState>) -> String {
     let uptime = state.started_at.elapsed().as_secs();
     let (enqueued, completed, cancelled) = state.engine.metrics_snapshot();
+    let (prompt_tokens, tokens_predicted) = state.engine.token_metrics_snapshot();
 
     format!(
-        "llama_server_uptime_seconds {uptime}\nllama_server_tasks_enqueued_total {enqueued}\nllama_server_tasks_completed_total {completed}\nllama_server_tasks_cancelled_total {cancelled}\n"
+        "llama_server_uptime_seconds {uptime}\nllama_server_tasks_enqueued_total {enqueued}\nllama_server_tasks_completed_total {completed}\nllama_server_tasks_cancelled_total {cancelled}\nllamacpp:prompt_tokens_total {prompt_tokens}\nllamacpp:tokens_predicted_total {tokens_predicted}\n"
     )
 }

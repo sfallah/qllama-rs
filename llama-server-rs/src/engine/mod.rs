@@ -1,5 +1,6 @@
 pub mod batch;
 pub mod chat;
+pub mod completion;
 pub mod r#loop;
 pub mod metrics;
 pub mod mtmd;
@@ -19,7 +20,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
-use tokio::sync::broadcast;
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -42,7 +43,7 @@ impl Engine {
     pub async fn submit(&self, kind: TaskKind, payload: Value) -> anyhow::Result<TaskHandle> {
         let id = Uuid::new_v4();
         let cancel = CancellationToken::new();
-        let (result_tx, result_rx) = broadcast::channel::<TaskResult>(128);
+        let (result_tx, result_rx) = mpsc::channel::<TaskResult>(128);
 
         let task = ServerTask {
             id,
@@ -55,15 +56,15 @@ impl Engine {
 
         self.queue.enqueue(task).await?;
 
-        Ok(TaskHandle {
-            id,
-            cancel,
-            result_rx,
-        })
+        Ok(TaskHandle::new(id, cancel, result_rx))
     }
 
     pub fn metrics_snapshot(&self) -> (u64, u64, u64) {
         self.metrics.snapshot()
+    }
+
+    pub fn token_metrics_snapshot(&self) -> (u64, u64) {
+        self.metrics.token_snapshot()
     }
 
     pub fn is_ready(&self) -> bool {

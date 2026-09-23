@@ -52,7 +52,7 @@ This document defines the target production architecture for full llama.cpp serv
 - Router mode (Phase 2b): model process map + proxy dispatch parity with llama.cpp router endpoints.
 
 6. Streaming/Event Pipeline
-- Internal event enum `TaskEvent` converted to endpoint-specific SSE/NDJSON shapes.
+- Internal event enum `TaskEvent` converted to endpoint-specific SSE shapes.
 - Backpressure-aware channel per request.
 - Unified stop/finalization logic emits usage and final stop reason consistently.
 

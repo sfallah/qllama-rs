@@ -23,19 +23,18 @@ use axum::Json;
 use serde_json::{json, Value};
 
 pub async fn submit_and_wait(state: &AppState, kind: TaskKind, payload: Value) -> AppResult<Value> {
-    let handle = state
+    let mut handle = state
         .engine
         .submit(kind, payload)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    let mut rx = handle.result_rx.resubscribe();
     loop {
-        match rx.recv().await {
-            Ok(TaskResult::Done(v)) => return Ok(v),
-            Ok(TaskResult::Error(e)) => return Err(AppError::Internal(e)),
-            Ok(TaskResult::Chunk(_)) => continue,
-            Err(e) => return Err(AppError::Internal(e.to_string())),
+        match handle.recv().await {
+            Some(TaskResult::Chunk(_)) => continue,
+            Some(TaskResult::Done(v)) => return Ok(v),
+            Some(TaskResult::Error(e)) => return Err(AppError::from(e)),
+            None => return Err(AppError::Internal("result channel closed".to_string())),
         }
     }
 }

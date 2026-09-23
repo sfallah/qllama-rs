@@ -18,7 +18,7 @@ This document is the parity target for `llama.cpp/tools/server` REST APIs (front
 | POST | `/props` | partial runtime config patch | updated props | none | api-key | updates server defaults, no task enqueue | `tools/server/server.cpp:176` |
 | GET | `/models` | none | OpenAI-style model list | none | public | reads model registry/router registry | `tools/server/server.cpp:177` |
 | GET | `/v1/models` | none | same as `/models` | none | public | reads model registry/router registry | `tools/server/server.cpp:178` |
-| POST | `/completion` | legacy completion payload (`prompt`, sampling params, `stream?`) | legacy completion object | token chunk + stop object (legacy JSON stream) | api-key | enqueues generation task on slot queue | `tools/server/server.cpp:179`, `tools/server/server-common.cpp:813+` |
+| POST | `/completion` | legacy completion payload (`prompt`, sampling params, `stream?`) | legacy completion object | SSE token chunks + final stop object (no `[DONE]`) | api-key | enqueues generation task on slot queue | `tools/server/server.cpp:179`, `tools/server/server-common.cpp:813+` |
 | POST | `/completions` | same as `/completion` | same as `/completion` | same as `/completion` | api-key | enqueues generation task on slot queue | `tools/server/server.cpp:180` |
 | POST | `/v1/completions` | OpenAI completions payload | OpenAI completions response | `data: {id,choices[*].text...}` + `[DONE]` | api-key | enqueues generation task on slot queue | `tools/server/server.cpp:181` |
 | POST | `/chat/completions` | OpenAI chat payload | chat completion response | chat delta chunks + final usage + `[DONE]` | api-key | enqueues chat task; slot assignment + cache reuse | `tools/server/server.cpp:182`, `tools/server/server-common.cpp:910+` |
@@ -65,7 +65,7 @@ This document is the parity target for `llama.cpp/tools/server` REST APIs (front
 
 ## Streaming Behavior Contract (Phase 2 Target)
 
-- `/completion` legacy stream: NDJSON chunks with token text + final stop/timings chunk.
+- `/completion` legacy stream: SSE `data: {…}\n\n` chunks with token text + final stop/timings chunk (`stop:true`); no `[DONE]` terminator.
 - `/v1/completions`: OpenAI SSE with `data: {choices:[{text,...}]}` and terminal `data: [DONE]`.
 - `/chat/completions` + `/v1/chat/completions`: SSE deltas (`choices[*].delta`) + optional usage event + `[DONE]`.
 - `/responses` + `/v1/responses`: OpenAI Responses SSE delta events and terminal completion event.

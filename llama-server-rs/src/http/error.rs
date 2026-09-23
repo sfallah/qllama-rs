@@ -1,3 +1,4 @@
+use crate::engine::task::TaskError;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -10,8 +11,26 @@ pub enum AppError {
     InvalidRequest(String),
     #[error("authentication failed")]
     Unauthorized,
+    #[error("not supported: {0}")]
+    NotSupported(String),
+    #[error("unavailable: {0}")]
+    Unavailable(String),
+    #[error("timeout: {0}")]
+    Timeout(String),
     #[error("internal error: {0}")]
     Internal(String),
+}
+
+impl From<TaskError> for AppError {
+    fn from(err: TaskError) -> Self {
+        match err.code {
+            400 => Self::InvalidRequest(err.message),
+            501 => Self::NotSupported(err.message),
+            503 => Self::Unavailable(err.message),
+            504 => Self::Timeout(err.message),
+            _ => Self::Internal(err.message),
+        }
+    }
 }
 
 impl IntoResponse for AppError {
@@ -23,6 +42,9 @@ impl IntoResponse for AppError {
                 "authentication_error",
                 "Invalid API Key".to_string(),
             ),
+            Self::NotSupported(m) => (StatusCode::NOT_IMPLEMENTED, "not_supported_error", m),
+            Self::Unavailable(m) => (StatusCode::SERVICE_UNAVAILABLE, "unavailable_error", m),
+            Self::Timeout(m) => (StatusCode::GATEWAY_TIMEOUT, "timeout_error", m),
             Self::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, "server_error", m),
         };
 
