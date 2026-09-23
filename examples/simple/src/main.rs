@@ -1,4 +1,4 @@
-//! This is a translation of simple.cpp in llama.cpp using llama-cpp.
+//! This is a translation of simple.cpp in llama.cpp using qllama.
 #![allow(
     clippy::cast_possible_wrap,
     clippy::cast_possible_truncation,
@@ -9,15 +9,15 @@
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use hf_hub::api::sync::ApiBuilder;
-use llama_cpp::context::params::LlamaContextParams;
-use llama_cpp::llama_backend::LlamaBackend;
-use llama_cpp::llama_batch::LlamaBatch;
-use llama_cpp::model::params::kv_overrides::ParamOverrideValue;
-use llama_cpp::model::params::{LlamaModelParams, LlamaSplitMode};
-use llama_cpp::model::AddBos;
-use llama_cpp::model::LlamaModel;
-use llama_cpp::sampling::LlamaSampler;
-use llama_cpp::{ggml_time_us, send_logs_to_tracing, LogOptions};
+use qllama::context::params::LlamaContextParams;
+use qllama::llama_backend::LlamaBackend;
+use qllama::llama_batch::LlamaBatch;
+use qllama::model::params::kv_overrides::ParamOverrideValue;
+use qllama::model::params::{LlamaModelParams, LlamaSplitMode};
+use qllama::model::AddBos;
+use qllama::model::LlamaModel;
+use qllama::sampling::LlamaSampler;
+use qllama::{ggml_time_us, send_logs_to_tracing, LogOptions};
 
 use std::ffi::CString;
 use std::io::Write;
@@ -174,7 +174,7 @@ fn main() -> Result<()> {
     let backend = LlamaBackend::init()?;
 
     if list_devices {
-        let devices = llama_cpp::list_llama_ggml_backend_devices();
+        let devices = qllama::list_llama_ggml_backend_devices();
         for (i, dev) in devices.iter().enumerate() {
             println!("Device {i:>2}: {}", dev.name);
             println!("           Description: {}", dev.description);

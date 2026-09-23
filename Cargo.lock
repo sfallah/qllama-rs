@@ -777,7 +777,7 @@ dependencies = [
  "clap",
  "encoding_rs",
  "hf-hub",
- "llama-cpp",
+ "qllama",
 ]
 
 [[package]]
@@ -1546,36 +1546,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
-name = "llama-cpp"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "encoding_rs",
- "enumflags2",
- "hf-hub",
- "llama-cpp-sys",
- "llguidance",
- "serde_json",
- "thiserror",
- "toktrie",
- "tracing",
- "tracing-core",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "llama-cpp-sys"
-version = "0.1.0"
-dependencies = [
- "bindgen",
- "cc",
- "cmake",
- "find_cuda_helper",
- "glob",
- "walkdir",
-]
-
-[[package]]
 name = "llguidance"
 version = "1.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1669,7 +1639,7 @@ version = "0.1.86"
 dependencies = [
  "clap",
  "encoding_rs",
- "llama-cpp",
+ "qllama",
 ]
 
 [[package]]
@@ -1738,7 +1708,7 @@ dependencies = [
  "actix-web",
  "encoding_rs",
  "hf-hub",
- "llama-cpp",
+ "qllama",
  "serde_json",
  "tracing-subscriber",
 ]
@@ -1893,6 +1863,36 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "qllama"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "encoding_rs",
+ "enumflags2",
+ "hf-hub",
+ "llguidance",
+ "qllama-sys",
+ "serde_json",
+ "thiserror",
+ "toktrie",
+ "tracing",
+ "tracing-core",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "qllama-sys"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
+ "cc",
+ "cmake",
+ "find_cuda_helper",
+ "glob",
+ "walkdir",
 ]
 
 [[package]]
@@ -2119,7 +2119,7 @@ dependencies = [
  "clap",
  "encoding_rs",
  "hf-hub",
- "llama-cpp",
+ "qllama",
 ]
 
 [[package]]
@@ -2359,7 +2359,7 @@ dependencies = [
  "clap",
  "encoding_rs",
  "hf-hub",
- "llama-cpp",
+ "qllama",
  "tracing-subscriber",
 ]
 

@@ -3,15 +3,15 @@
 //! Usage:
 //!   cargo run --example tools -- hf-model TheBloke/Llama-2-7B-GGUF llama-2-7b.Q4_K_M.gguf
 use hf_hub::api::sync::ApiBuilder;
-use llama_cpp::context::params::LlamaContextParams;
-use llama_cpp::llama_backend::LlamaBackend;
-use llama_cpp::llama_batch::LlamaBatch;
-use llama_cpp::model::params::LlamaModelParams;
-use llama_cpp::model::Special;
-use llama_cpp::model::{
+use qllama::context::params::LlamaContextParams;
+use qllama::llama_backend::LlamaBackend;
+use qllama::llama_batch::LlamaBatch;
+use qllama::model::params::LlamaModelParams;
+use qllama::model::Special;
+use qllama::model::{
     AddBos, GrammarTriggerType, LlamaChatMessage, LlamaChatTemplate, LlamaModel,
 };
-use llama_cpp::sampling::LlamaSampler;
+use qllama::sampling::LlamaSampler;
 use serde_json::json;
 use std::collections::HashSet;
 use std::io::Write;

@@ -4,17 +4,17 @@
 //!
 //! ```console
 //! git clone --recursive https://github.com/utilityai/llama-cpp-rs
-//! cd llama-cpp-rs/examples/usage
+//! cd qllama-rs/examples/usage
 //! wget https://huggingface.co/Qwen/Qwen2-1.5B-Instruct-GGUF/resolve/main/qwen2-1_5b-instruct-q4_0.gguf
 //! cargo run --example usage -- qwen2-1_5b-instruct-q4_0.gguf
 //! ```
-use llama_cpp::context::params::LlamaContextParams;
-use llama_cpp::llama_backend::LlamaBackend;
-use llama_cpp::llama_batch::LlamaBatch;
-use llama_cpp::model::params::LlamaModelParams;
-use llama_cpp::model::LlamaModel;
-use llama_cpp::model::{AddBos, Special};
-use llama_cpp::sampling::LlamaSampler;
+use qllama::context::params::LlamaContextParams;
+use qllama::llama_backend::LlamaBackend;
+use qllama::llama_batch::LlamaBatch;
+use qllama::model::params::LlamaModelParams;
+use qllama::model::LlamaModel;
+use qllama::model::{AddBos, Special};
+use qllama::sampling::LlamaSampler;
 use std::io::Write;
 
 #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]

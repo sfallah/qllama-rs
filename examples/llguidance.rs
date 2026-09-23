@@ -6,13 +6,13 @@
 //! cargo run --example llguidance --features llguidance -- <path_to_model>
 //! ```
 
-use llama_cpp::context::params::LlamaContextParams;
-use llama_cpp::llama_backend::LlamaBackend;
-use llama_cpp::llama_batch::LlamaBatch;
-use llama_cpp::model::params::LlamaModelParams;
-use llama_cpp::model::AddBos;
-use llama_cpp::model::LlamaModel;
-use llama_cpp::sampling::LlamaSampler;
+use qllama::context::params::LlamaContextParams;
+use qllama::llama_backend::LlamaBackend;
+use qllama::llama_batch::LlamaBatch;
+use qllama::model::params::LlamaModelParams;
+use qllama::model::AddBos;
+use qllama::model::LlamaModel;
+use qllama::sampling::LlamaSampler;
 use std::io::Write;
 
 fn main() {

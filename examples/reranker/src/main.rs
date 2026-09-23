@@ -13,14 +13,14 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 
-use llama_cpp::context::params::{LlamaContextParams, LlamaPoolingType};
-use llama_cpp::context::LlamaContext;
-use llama_cpp::ggml_time_us;
-use llama_cpp::llama_backend::LlamaBackend;
-use llama_cpp::llama_batch::LlamaBatch;
-use llama_cpp::model::params::LlamaModelParams;
-use llama_cpp::model::AddBos;
-use llama_cpp::model::LlamaModel;
+use qllama::context::params::{LlamaContextParams, LlamaPoolingType};
+use qllama::context::LlamaContext;
+use qllama::ggml_time_us;
+use qllama::llama_backend::LlamaBackend;
+use qllama::llama_batch::LlamaBatch;
+use qllama::model::params::LlamaModelParams;
+use qllama::model::AddBos;
+use qllama::model::LlamaModel;
 
 #[derive(clap::Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]

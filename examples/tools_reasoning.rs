@@ -3,15 +3,15 @@
 //! Usage:
 //!   cargo run --example tools_reasoning -- [--continous] hf-model unsloth/Qwen3.5-4B-GGUF Qwen3.5-4B-Q4_K_M.gguf
 use hf_hub::api::sync::ApiBuilder;
-use llama_cpp::context::params::LlamaContextParams;
-use llama_cpp::llama_backend::LlamaBackend;
-use llama_cpp::llama_batch::LlamaBatch;
-use llama_cpp::model::params::LlamaModelParams;
-use llama_cpp::model::ChatTemplateResult;
-use llama_cpp::model::Special;
-use llama_cpp::model::{AddBos, GrammarTriggerType, LlamaChatTemplate, LlamaModel};
-use llama_cpp::openai::OpenAIChatTemplateParams;
-use llama_cpp::sampling::LlamaSampler;
+use qllama::context::params::LlamaContextParams;
+use qllama::llama_backend::LlamaBackend;
+use qllama::llama_batch::LlamaBatch;
+use qllama::model::params::LlamaModelParams;
+use qllama::model::ChatTemplateResult;
+use qllama::model::Special;
+use qllama::model::{AddBos, GrammarTriggerType, LlamaChatTemplate, LlamaModel};
+use qllama::openai::OpenAIChatTemplateParams;
+use qllama::sampling::LlamaSampler;
 use serde_json::json;
 use std::collections::HashSet;
 use std::io::Write;

@@ -5,14 +5,14 @@ edition = "2021"
 publish = false
 
 [dependencies]
-llama-cpp = { path = "../../llama-cpp", version = "0.1.0", features = ["mtmd"] }
+qllama = { path = "../../qllama", version = "0.1.0", features = ["mtmd"] }
 clap = { workspace = true, features = ["derive"] }
 encoding_rs = { workspace = true }
 
 [features]
-cuda = ["llama-cpp/cuda"]
-metal = ["llama-cpp/metal"]
-vulkan = ["llama-cpp/vulkan"]
+cuda = ["qllama/cuda"]
+metal = ["qllama/metal"]
+vulkan = ["qllama/vulkan"]
 
 [lints]
 workspace = true

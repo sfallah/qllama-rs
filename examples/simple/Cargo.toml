@@ -7,7 +7,7 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-llama-cpp = { path = "../../llama-cpp", version = "0.1.0" }
+qllama = { path = "../../qllama", version = "0.1.0" }
 hf-hub = { workspace = true }
 clap = { workspace = true , features = ["derive"] }
 anyhow = { workspace = true }
@@ -15,9 +15,9 @@ encoding_rs = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [features]
-cuda = ["llama-cpp/cuda"]
-metal = ["llama-cpp/metal"]
-vulkan = ["llama-cpp/vulkan"]
+cuda = ["qllama/cuda"]
+metal = ["qllama/metal"]
+vulkan = ["qllama/vulkan"]
 
 [lints]
 workspace = true

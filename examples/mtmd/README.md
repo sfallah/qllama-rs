@@ -1,6 +1,6 @@
 # Rust mtmd-cli implementation
 
-Partial port of the mtmd-cli.cpp example in the llama-cpp repository.
+Partial port of the mtmd-cli.cpp example in the llama.cpp repository.
 
 ## Usage
 

@@ -5,14 +5,14 @@
 //!   cargo run -p openai-server -- hf-model <repo> <model>
 use actix_web::{http::StatusCode, web, App, HttpResponse, HttpServer};
 use hf_hub::api::sync::ApiBuilder;
-use llama_cpp::context::params::LlamaContextParams;
-use llama_cpp::llama_backend::LlamaBackend;
-use llama_cpp::llama_batch::LlamaBatch;
-use llama_cpp::model::params::LlamaModelParams;
-use llama_cpp::model::{AddBos, GrammarTriggerType, LlamaChatTemplate, LlamaModel, Special};
-use llama_cpp::openai::OpenAIChatTemplateParams;
-use llama_cpp::sampling::LlamaSampler;
-use llama_cpp::token::LlamaToken;
+use qllama::context::params::LlamaContextParams;
+use qllama::llama_backend::LlamaBackend;
+use qllama::llama_batch::LlamaBatch;
+use qllama::model::params::LlamaModelParams;
+use qllama::model::{AddBos, GrammarTriggerType, LlamaChatTemplate, LlamaModel, Special};
+use qllama::openai::OpenAIChatTemplateParams;
+use qllama::sampling::LlamaSampler;
+use qllama::token::LlamaToken;
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::num::NonZeroU32;
@@ -175,7 +175,7 @@ fn extract_json_schema(request: &Value) -> Result<Option<String>, HttpError> {
 
 fn build_sampler(
     model: &LlamaModel,
-    result: &llama_cpp::model::ChatTemplateResult,
+    result: &qllama::model::ChatTemplateResult,
     temperature: f32,
     top_p: f32,
     top_k: i32,
