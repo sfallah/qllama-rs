@@ -221,6 +221,37 @@ pub fn benches() {
         .collect();
     llama_cpp_embedding(&mut criterion, &mut ctx, &model, &splits_str);
 
+    // Tokenisation of the same splits: llama.cpp's GGUF vocab vs the HF tokenizer of the model.
+    // The model's tokenizer.json truncates and pads to 128 tokens; switch both off so the two
+    // tokenizers produce the same full-length output.
+    let mut hf_tokenizer = Tokenizer::from_pretrained(model_id, None).unwrap();
+    hf_tokenizer.with_truncation(None).unwrap().with_padding(None);
+    let hf_tokenizer = Arc::new(hf_tokenizer);
+    let identical = splits_str
+        .iter()
+        .filter(|split| {
+            let llama: Vec<u32> = llama_cpp_tokenize(&model, split)
+                .unwrap()
+                .iter()
+                .map(|token| token.0 as u32)
+                .collect();
+            llama == hf_tokenize(&hf_tokenizer, split).unwrap()
+        })
+        .count();
+    println!(
+        "llama.cpp and HF tokens identical for {identical} of {} splits",
+        splits_str.len()
+    );
+    let first = &splits_str[0];
+    println!(
+        "split 0: llama.cpp {} tokens, HF {} tokens",
+        llama_cpp_tokenize(&model, first).unwrap().len(),
+        hf_tokenize(&hf_tokenizer, first).unwrap().len()
+    );
+    llama_cpp_tokenize_benchmark(&mut criterion, &model, &splits_str);
+    hf_tokenize_benchmark(&mut criterion, hf_tokenizer.clone(), &splits_str);
+    hf_parallel_tokenize_benchmark(&mut criterion, hf_tokenizer, &splits_str);
+
     let sentences1 = vec![
         "The new movie is awesome",
         "The cat sits outside",
