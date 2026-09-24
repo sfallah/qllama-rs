@@ -1,16 +1,14 @@
 use anyhow::Context;
 use criterion::{criterion_main, Criterion};
-use indexmap::IndexMap;
 use qllama::context::params::{LlamaContextParams, LlamaPoolingType};
 use qllama::context::LlamaContext;
-use qllama::llama_batch::LlamaBatch;
 use qllama::model::{AddBos, LlamaModel};
 use qllama::token::LlamaToken;
 use qllama_bench::split_data::QuerySummaries;
 use qllama_bench::{
-    batch_decode_rerank, build_simple_reranker_prompts, ensure_hf_model_file, hf_tokenize,
-    init_backend, init_model, init_reranker_context, init_splitter, llama_cpp_tokenize,
-    load_query_summaries, process_batch, process_single, rerank_token_batches,
+    ensure_hf_model_file, hf_tokenize, init_backend, init_model, init_reranker_context,
+    init_splitter, llama_cpp_tokenize, load_query_summaries, process_batch, process_single,
+    rerank_token_batches,
 };
 use rayon::prelude::*;
 use std::fs;
@@ -132,103 +130,71 @@ pub fn llama_cpp_embedding_single(
     });
 }
 
-pub fn reranker_benchmark(
+/// Qwen3-Reranker prompt, as stored in the GGUF's `tokenizer.chat_template.rerank`.
+fn qwen3_rerank_prompt(query: &str, document: &str) -> String {
+    format!(
+        "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n<|im_start|>user\n<Instruct>: Given a web search query, retrieve relevant passages that answer the query\n<Query>: {query}\n<Document>: {document}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    )
+}
+
+fn qwen3_rerank_tokens(
+    model: &LlamaModel,
+    query_summaries: &QuerySummaries,
+) -> Vec<Vec<LlamaToken>> {
+    query_summaries
+        .summaries
+        .iter()
+        .map(|doc| {
+            model.str_to_token(
+                &qwen3_rerank_prompt(&query_summaries.query, doc),
+                AddBos::Never,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+}
+
+/// Rank pooling on Qwen3 runs the `cls.output` yes/no head on the last token and softmaxes it,
+/// so element 0 of each sequence's output is P(yes).
+fn qwen3_rerank_scores(
+    ctx: &mut LlamaContext,
+    tokens: &[Vec<LlamaToken>],
+    max_tokens: u32,
+) -> Vec<f32> {
+    rerank_token_batches(ctx, tokens, max_tokens as usize, false, "rank")
+        .unwrap()
+        .iter()
+        .map(|output| output[0])
+        .collect()
+}
+
+/// End to end: prompt formatting, tokenisation and ranking of all documents.
+pub fn qwen3_reranker(
     c: &mut Criterion,
     ctx: &mut LlamaContext,
     model: &LlamaModel,
     query_summaries: &QuerySummaries,
     max_tokens: u32,
 ) {
-    let query = &query_summaries.query;
-    let documents = &query_summaries.summaries;
-    let prompt_lines = build_simple_reranker_prompts(query, documents);
-
-    c.bench_function("reranker_benchmark", |b| {
+    c.bench_function("qwen3_reranker", |b| {
         b.iter(|| {
-            let tokens_lines_list = prompt_lines
-                .iter()
-                .map(|line| model.str_to_token(line, AddBos::Never))
-                .collect::<Result<Vec<_>, _>>()
-                .with_context(|| format!("failed to tokenize {:?}", prompt_lines))
-                .unwrap();
-
-            let output =
-                rerank_token_batches(ctx, &tokens_lines_list, max_tokens as usize, true, "rank")
-                    .unwrap();
-
-            let scores = output
-                .iter()
-                .map(|embeddings| embeddings[0])
-                .collect::<Vec<f32>>();
-            black_box(scores);
+            let tokens = qwen3_rerank_tokens(model, black_box(query_summaries));
+            black_box(qwen3_rerank_scores(ctx, &tokens, max_tokens));
         });
     });
 }
 
-pub fn reranker_benchmark_improved(
+/// Ranking only, on prompts tokenised once up front.
+pub fn qwen3_reranker_pretokenized(
     c: &mut Criterion,
     ctx: &mut LlamaContext,
     model: &LlamaModel,
     query_summaries: &QuerySummaries,
     max_tokens: u32,
 ) {
-    let query = &query_summaries.query;
-    let texts = &query_summaries.summaries;
-
-    let bos_token = model.token_bos();
-    let eos_token = model.token_eos();
-    let sep_token = model.token_sep();
-
-    c.bench_function("reranker_benchmark_improved", |b| {
-        b.iter(|| {
-            let query_tokens = model
-                .str_to_token(query, AddBos::Never)
-                .unwrap_or_else(|e| panic!("Failed to tokenize query: {:?}", e));
-            let query_no_tokens = query_tokens.len();
-            let n_ctx = ctx.n_ctx() as usize;
-
-            let mut sequence_pairs_map = IndexMap::new();
-            for (idx, text) in texts.iter().enumerate() {
-                let text_tokens = model
-                    .str_to_token(text, AddBos::Never)
-                    .unwrap_or_else(|e| panic!("Failed to tokenize seq: {}\n, text: {:?}\n, error: {:?}", idx, text, e));
-                let text_no_tokens = text_tokens.len();
-                if text_no_tokens + query_no_tokens + 4 > n_ctx {
-                    panic!(
-                        "Sequence Pair no_tokens exceeds n_ctx. Query: {}, text: {}, n_ctx: {}",
-                        query_no_tokens, text_no_tokens, n_ctx
-                    );
-                }
-                //"{bos}{query}{eos}{sep}{doc}{eos}"
-                let mut sequence_pairs_tokens = query_tokens.clone();
-                sequence_pairs_tokens.insert(0, bos_token);
-                sequence_pairs_tokens.push(eos_token);
-                sequence_pairs_tokens.push(sep_token);
-                sequence_pairs_tokens.extend(text_tokens);
-                sequence_pairs_tokens.push(eos_token);
-                sequence_pairs_map.insert(idx, sequence_pairs_tokens);
-            }
-
-            let mut batch = LlamaBatch::new(max_tokens as usize, 1);
-            let mut max_seq_id_batch = 0;
-            let mut output = Vec::with_capacity(sequence_pairs_map.len());
-
-            for tokens in sequence_pairs_map.values() {
-                // Flush the batch if the next prompt would exceed our batch size
-                if batch.n_tokens() as usize + tokens.len() > n_ctx {
-                    batch_decode_rerank(ctx, &mut batch, max_seq_id_batch, &mut output, true, "rank").unwrap();
-                    max_seq_id_batch = 0;
-                    batch.clear();
-                }
-                batch.add_sequence(tokens, max_seq_id_batch, false).expect("Failed to add sequence to batch");
-                max_seq_id_batch += 1;
-            }
-
-            batch_decode_rerank(ctx, &mut batch, max_seq_id_batch, &mut output, true, "rank").unwrap();
-
-            let scores = output.iter().map(|embeddings| embeddings[0]).collect::<Vec<f32>>();
-            black_box(scores)
-        });
+    let tokens = qwen3_rerank_tokens(model, query_summaries);
+    c.bench_function("qwen3_reranker_pretokenized", |b| {
+        b.iter(|| black_box(qwen3_rerank_scores(ctx, black_box(&tokens), max_tokens)));
     });
 }
 
@@ -273,7 +239,10 @@ pub fn benches() {
         println!("\ttokens: {:?}", split.tokens.len());
     }
 
-    let splits_str: Vec<String> = splits.iter().map(|split| split.split_string.clone()).collect();
+    let splits_str: Vec<String> = splits
+        .iter()
+        .map(|split| split.split_string.clone())
+        .collect();
     llama_cpp_embedding(&mut criterion, &mut ctx, &model, &splits_str);
 
     let sentences1 = vec![
@@ -290,7 +259,7 @@ pub fn benches() {
     ];
     llama_cpp_embedding_sentences(&mut criterion, &mut ctx, &model, &sentences1, &sentences2);
 
-    let _query_summaries =
+    let query_summaries =
         load_query_summaries("tests/test_data/bert_paper_query_summaries.json").unwrap();
 
     let model_path = ensure_hf_model_file(
@@ -301,13 +270,46 @@ pub fn benches() {
     .unwrap();
     let model = init_model(&model_path, &backend).unwrap();
     let max_tokens = 2048;
-    let _ctx =
-        init_reranker_context(&model, &backend, max_tokens, Some(LlamaPoolingType::Last)).unwrap();
+    let mut ctx =
+        init_reranker_context(&model, &backend, max_tokens, Some(LlamaPoolingType::Rank)).unwrap();
 
-    /*
-    reranker_benchmark(&mut criterion, &mut ctx, &model, &query_summaries, max_tokens);
-    reranker_benchmark_improved(&mut criterion, &mut ctx, &model, &query_summaries, max_tokens);
-    */
+    // Sanity check before timing: the ranking should put BERT-method summaries on top.
+    let tokens = qwen3_rerank_tokens(&model, &query_summaries);
+    let mut ranked: Vec<(usize, f32)> = qwen3_rerank_scores(&mut ctx, &tokens, max_tokens)
+        .into_iter()
+        .enumerate()
+        .collect();
+    ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
+    println!("query: {}", query_summaries.query);
+    for (idx, score) in &ranked {
+        let summary = &query_summaries.summaries[*idx];
+        let head: String = summary
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .chars()
+            .take(90)
+            .collect();
+        println!(
+            "{score:.4}  [{idx:2}] {} tokens  {head}",
+            tokens[*idx].len()
+        );
+    }
+
+    qwen3_reranker(
+        &mut criterion,
+        &mut ctx,
+        &model,
+        &query_summaries,
+        max_tokens,
+    );
+    qwen3_reranker_pretokenized(
+        &mut criterion,
+        &mut ctx,
+        &model,
+        &query_summaries,
+        max_tokens,
+    );
 }
 
 criterion_main!(benches);
