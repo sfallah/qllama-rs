@@ -638,6 +638,12 @@ impl LlamaModel {
         unsafe { qllama_sys::llama_n_embd(self.model.as_ptr()) }
     }
 
+    /// Returns the number of classifier outputs (only valid for classifier models such as
+    /// rerankers). This is the length of each sequence's output under rank pooling.
+    pub fn n_cls_out(&self) -> u32 {
+        unsafe { qllama_sys::llama_model_n_cls_out(self.model.as_ptr()) }
+    }
+
     /// Returns the total size of all the tensors in the model in bytes.
     pub fn size(&self) -> u64 {
         unsafe { qllama_sys::llama_model_size(self.model.as_ptr()) }

@@ -121,7 +121,8 @@ impl<'model> LlamaContext<'model> {
     /// # Returns
     ///
     /// A slice containing the embeddings for the last decoded batch.
-    /// The size corresponds to the `n_embd` parameter of the context's model.
+    /// The size corresponds to the `n_embd` parameter of the context's model, or under rank
+    /// pooling to its `n_cls_out` (the classifier scores, e.g. 1 for BGE rerankers, 2 for Qwen3).
     ///
     /// # Errors
     ///
@@ -137,8 +138,15 @@ impl<'model> LlamaContext<'model> {
             return Err(EmbeddingsError::NotEnabled);
         }
 
-        let n_embd =
-            usize::try_from(self.model.n_embd()).expect("n_embd does not fit into a usize");
+        // Rank pooling stores only `n_cls_out` floats per sequence; a longer slice would read
+        // past llama.cpp's buffer.
+        let rank_pooling = unsafe { qllama_sys::llama_pooling_type(self.context.as_ptr()) }
+            == qllama_sys::LLAMA_POOLING_TYPE_RANK;
+        let n_embd = if rank_pooling {
+            usize::try_from(self.model.n_cls_out()).expect("n_cls_out does not fit into a usize")
+        } else {
+            usize::try_from(self.model.n_embd()).expect("n_embd does not fit into a usize")
+        };
 
         unsafe {
             let embedding = qllama_sys::llama_get_embeddings_seq(self.context.as_ptr(), i);
