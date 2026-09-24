@@ -149,7 +149,7 @@ mod tetes {
 
         let model_path = ensure_hf_model_file(
             "sabafallah/bge-reranker-v2-m3-Q4_K_M-GGUF",
-            "bge-reranker-v2-m3-Q4_K_M.gguf",
+            "bge-reranker-v2-m3-q4_k_m.gguf",
             None,
         )?;
         let backend = init_backend(true)?;
