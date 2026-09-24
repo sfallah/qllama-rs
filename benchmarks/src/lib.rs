@@ -147,28 +147,33 @@ pub fn rerank_token_batches(
     Ok(output)
 }
 
-/// Runs last-pooling reranker decoding over tokenized prompts using context-sized batching.
-pub fn rerank_last_token_batches(
+/// Builds Qwen3-Reranker prompts, as stored in the GGUF's `tokenizer.chat_template.rerank`.
+pub fn build_qwen3_reranker_prompts<S: AsRef<str>>(query: &str, documents: &[S]) -> Vec<String> {
+    documents
+        .iter()
+        .map(|doc| {
+            let doc = doc.as_ref();
+            format!(
+                "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n<|im_start|>user\n<Instruct>: Given a web search query, retrieve relevant passages that answer the query\n<Query>: {query}\n<Document>: {doc}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+            )
+        })
+        .collect()
+}
+
+/// Scores tokenized Qwen3-Reranker prompts. The context must use rank pooling: llama.cpp then
+/// runs the GGUF's `cls.output` yes/no head on the last token and softmaxes it, so element 0 of
+/// each sequence's output is P(yes).
+pub fn rerank_qwen3(
     ctx: &mut LlamaContext,
     tokens_lines_list: &[Vec<LlamaToken>],
     max_tokens: usize,
 ) -> Result<Vec<f32>> {
-    let mut batch = LlamaBatch::new(max_tokens, 1);
-    let mut max_seq_id_batch = 0;
-    let mut output = Vec::with_capacity(tokens_lines_list.len());
-
-    for tokens in tokens_lines_list {
-        if (batch.n_tokens() as usize + tokens.len()) > max_tokens {
-            batch_decode_rerank_last(ctx, &mut batch, &mut output, max_seq_id_batch)?;
-            max_seq_id_batch = 0;
-            batch.clear();
-        }
-        batch.add_sequence(tokens, max_seq_id_batch, false)?;
-        max_seq_id_batch += 1;
-    }
-
-    batch_decode_rerank_last(ctx, &mut batch, &mut output, max_seq_id_batch)?;
-    Ok(output)
+    Ok(
+        rerank_token_batches(ctx, tokens_lines_list, max_tokens, false, "rank")?
+            .iter()
+            .map(|output| output[0])
+            .collect(),
+    )
 }
 
 /// Loads query + summary documents from a JSON file.
@@ -185,26 +190,6 @@ pub fn build_simple_reranker_prompts(query: &str, documents: &[String]) -> Vec<S
         .iter()
         .map(|doc| format!("<s>{query}</s></s>{doc}</s>"))
         .collect()
-}
-
-pub fn batch_decode_rerank_last(
-    ctx: &mut LlamaContext,
-    batch: &mut LlamaBatch,
-    output: &mut Vec<f32>,
-    s_batch: i32,
-) -> Result<()> {
-    ctx.clear_kv_cache();
-    ctx.decode(batch).with_context(|| "llama_decode() failed")?;
-
-    for i in 0..s_batch {
-        let embed = ctx
-            .embeddings_seq_ith(i)
-            .with_context(|| "Failed to get sequence embeddings")?;
-        output.push(embed[0].abs());
-    }
-
-    batch.clear();
-    Ok(())
 }
 
 pub fn single_decode(

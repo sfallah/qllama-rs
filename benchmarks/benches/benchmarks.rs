@@ -1,4 +1,3 @@
-use anyhow::Context;
 use criterion::{criterion_main, Criterion};
 use qllama::context::params::{LlamaContextParams, LlamaPoolingType};
 use qllama::context::LlamaContext;
@@ -6,9 +5,9 @@ use qllama::model::{AddBos, LlamaModel};
 use qllama::token::LlamaToken;
 use qllama_bench::split_data::QuerySummaries;
 use qllama_bench::{
-    ensure_hf_model_file, hf_tokenize, init_backend, init_model, init_reranker_context,
-    init_splitter, llama_cpp_tokenize, load_query_summaries, process_batch, process_single,
-    rerank_token_batches,
+    build_qwen3_reranker_prompts, ensure_hf_model_file, hf_tokenize, init_backend, init_model,
+    init_reranker_context, init_splitter, llama_cpp_tokenize, load_query_summaries, process_batch,
+    process_single, rerank_qwen3,
 };
 use rayon::prelude::*;
 use std::fs;
@@ -64,11 +63,7 @@ pub fn llama_cpp_embedding_sentences(
     });
 }
 
-pub fn llama_cpp_tokenize_benchmark(
-    c: &mut Criterion,
-    model: &LlamaModel,
-    sentences: &[String],
-) {
+pub fn llama_cpp_tokenize_benchmark(c: &mut Criterion, model: &LlamaModel, sentences: &[String]) {
     c.bench_function("llama_cpp_tokenize_benchmark", |b| {
         b.iter(|| {
             let tokens_list = sentences
@@ -130,42 +125,23 @@ pub fn llama_cpp_embedding_single(
     });
 }
 
-/// Qwen3-Reranker prompt, as stored in the GGUF's `tokenizer.chat_template.rerank`.
-fn qwen3_rerank_prompt(query: &str, document: &str) -> String {
-    format!(
-        "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n<|im_start|>user\n<Instruct>: Given a web search query, retrieve relevant passages that answer the query\n<Query>: {query}\n<Document>: {document}<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
-    )
-}
-
 fn qwen3_rerank_tokens(
     model: &LlamaModel,
     query_summaries: &QuerySummaries,
 ) -> Vec<Vec<LlamaToken>> {
-    query_summaries
-        .summaries
+    build_qwen3_reranker_prompts(&query_summaries.query, &query_summaries.summaries)
         .iter()
-        .map(|doc| {
-            model.str_to_token(
-                &qwen3_rerank_prompt(&query_summaries.query, doc),
-                AddBos::Never,
-            )
-        })
+        .map(|prompt| model.str_to_token(prompt, AddBos::Never))
         .collect::<Result<Vec<_>, _>>()
         .unwrap()
 }
 
-/// Rank pooling on Qwen3 runs the `cls.output` yes/no head on the last token and softmaxes it,
-/// so element 0 of each sequence's output is P(yes).
 fn qwen3_rerank_scores(
     ctx: &mut LlamaContext,
     tokens: &[Vec<LlamaToken>],
     max_tokens: u32,
 ) -> Vec<f32> {
-    rerank_token_batches(ctx, tokens, max_tokens as usize, false, "rank")
-        .unwrap()
-        .iter()
-        .map(|output| output[0])
-        .collect()
+    rerank_qwen3(ctx, tokens, max_tokens as usize).unwrap()
 }
 
 /// End to end: prompt formatting, tokenisation and ranking of all documents.

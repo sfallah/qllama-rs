@@ -3,13 +3,12 @@ mod tetes {
     use candle_core::{Device, Tensor};
     use qllama::context::params::LlamaPoolingType;
     use qllama::model::AddBos;
-    use qllama::token::LlamaToken;
     use qllama_bench::split_data::QuerySummaries;
     use qllama_bench::{
-        build_simple_reranker_prompts, ensure_hf_model_file, init_backend, init_context,
-        init_model, init_model_multi, init_reranker_context,
-        load_query_summaries, process_splits_batch, rerank_last_token_batches,
-        rerank_token_batches, SentenceScore,
+        build_qwen3_reranker_prompts, build_simple_reranker_prompts, ensure_hf_model_file,
+        init_backend, init_context, init_model, init_model_multi, init_reranker_context,
+        load_query_summaries, process_splits_batch, rerank_qwen3, rerank_token_batches,
+        SentenceScore,
     };
     use serial_test::serial;
     use std::fs;
@@ -127,7 +126,7 @@ mod tetes {
         }
         Ok(())
     }
-    
+
     #[test]
     fn query_summaries_data() -> Result<()> {
         let json_file_path = "tests/test_data/bert_paper_query_summaries.json";
@@ -266,17 +265,6 @@ mod tetes {
         Ok(())
     }
 
-    fn format_instruction(instruction: Option<&str>, query: &str, doc: &str) -> String {
-        let instruction = instruction.unwrap_or(
-            "Given a web search query, retrieve relevant passages that answer the query",
-        );
-        let output = format!(
-            "<Instruct>: {:?}\n<Query>: {:?}\n<Document>: {:?}",
-            instruction, query, doc
-        );
-        output
-    }
-
     #[test]
     #[serial(model)]
     fn qwen_reranker_test() -> Result<()> {
@@ -288,84 +276,54 @@ mod tetes {
         let backend = init_backend(true)?;
         let model = init_model(&model_path, &backend)?;
         let max_tokens = 8192;
-        let pooling_type = Some(LlamaPoolingType::Last);
-        let mut ctx = init_reranker_context(&model, &backend, max_tokens, pooling_type)?;
+        let mut ctx =
+            init_reranker_context(&model, &backend, max_tokens, Some(LlamaPoolingType::Rank))?;
 
-        let prefix = "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n<|im_start|>user\n";
-        let suffix = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n";
-
-        let prefix_tokens = model.str_to_token(prefix, AddBos::Never)?;
-        let suffix_tokens = model.str_to_token(suffix, AddBos::Never)?;
-
-        let binding = model.str_to_token("yes", AddBos::Never)?;
-        let yes_token = binding.get(0).unwrap();
-        let binding = model.str_to_token("no", AddBos::Never)?;
-        let no_token = binding.get(0).unwrap();
-        println!("yes_token: {:?}", yes_token);
-        println!("no_token: {:?}", no_token);
-        println!("prefix tokens len: {}", prefix_tokens.len());
-        println!("suffix tokens len: {}", suffix_tokens.len());
-
-        let instruction =
-            Some("Given a web search query, retrieve relevant passages that answer the query");
-
-        //let query = query_summaries.query.clone();
-        //let documents = query_summaries.summaries.clone();
-
-        let documents = Vec::from(&[
+        let documents = [
             "Angela Merkel was the Chancellor of Germany",
             "Pizza is made with tomatoes and cheese",
             "Deep learning uses neural networks...",
             "The weather today is sunny and warm",
             "Machine learning is a subset of artificial intelligence",
-        ]);
+        ];
         let query = "What is machine learning?";
 
-        let prompt_lines: Vec<String> = {
-            let mut lines = Vec::new();
-
-            for doc in documents.iter() {
-                let text = format_instruction(instruction, &query, doc);
-                lines.push(text);
-            }
-            lines
-        };
-        // tokenize the prompt
-        let tokens_lines_list: Vec<_> = prompt_lines
+        let tokens_lines_list = build_qwen3_reranker_prompts(query, &documents)
             .iter()
-            .map(|line| {
-                let prompt_line_tokens = model
-                    .str_to_token(line, AddBos::Never)
-                    .expect("unable to tokenize");
-                let mut tokens: Vec<LlamaToken> = prefix_tokens.clone();
-                tokens.extend(prompt_line_tokens);
-                tokens.extend(suffix_tokens.clone());
-                tokens
-            })
-            .collect();
-
-        for tokens in &tokens_lines_list {
-            println!("tokens len: {}", tokens.len());
-        }
+            .map(|prompt| model.str_to_token(prompt, AddBos::Never))
+            .collect::<Result<Vec<_>, _>>()?;
 
         let n_ctx = ctx.n_ctx() as usize;
-
         if tokens_lines_list.iter().any(|tok| n_ctx < tok.len()) {
             bail!("One of the provided prompts exceeds the size of the context window");
         }
 
-        let output = rerank_last_token_batches(&mut ctx, &tokens_lines_list, max_tokens as usize)?;
+        let scores = rerank_qwen3(&mut ctx, &tokens_lines_list, max_tokens as usize)?;
+        assert_eq!(scores.len(), documents.len());
 
-        let mut scores: Vec<_> = output.iter().enumerate().collect();
-        println!("scores before sort: {:?}", scores);
-        scores.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
-        println!("scores after sort: {:?}", scores);
-        for (idx, score) in scores.iter() {
-            println!("--------------- {} ---------------", idx);
-            println!("score: {}", score);
-            let summary = documents.get(*idx).unwrap();
-            println!("summary: {}", summary);
+        let mut ranked: Vec<(usize, f32)> = scores.iter().copied().enumerate().collect();
+        ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
+        for (idx, score) in &ranked {
+            println!("{score:.4}  {}", documents[*idx]);
         }
+
+        // Scores are P(yes), so they are probabilities.
+        assert!(
+            scores.iter().all(|s| (0.0..=1.0).contains(s)),
+            "scores: {scores:?}"
+        );
+        // The machine-learning definition ranks first, the deep-learning line second.
+        assert_eq!(ranked[0].0, 4, "ranking: {ranked:?}");
+        assert_eq!(ranked[1].0, 2, "ranking: {ranked:?}");
+        // The three unrelated documents are judged irrelevant.
+        for idx in [0, 1, 3] {
+            assert!(scores[idx] < 0.1, "document {idx} scored {}", scores[idx]);
+        }
+        assert!(
+            scores[4] > 0.9,
+            "machine-learning definition scored {}",
+            scores[4]
+        );
 
         Ok(())
     }
